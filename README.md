@@ -122,7 +122,9 @@ the contract between `run` and `report`. anything else can consume it too.
   scripts on the host with your secrets.
 - all third-party actions are pinned to a commit sha (version in a trailing comment).
 - `job.workflow_*` isn't available on GitHub Enterprise Server.
-- needs a runner with docker. any `ubuntu-*` hosted runner works.
+- needs a runner with docker. any `ubuntu-*` hosted runner works. the run job
+  also installs `uv`, since pats runs task/scorer scripts on the host and
+  `#!/usr/bin/env -S uv run --script` shebangs are the usual pattern.
 
 ## development
 
