@@ -40,6 +40,10 @@ on:
         description: on prs, fail when the score is more than this below the base branch's (e.g. "0.05"). default -- never
         type: string
         default: ""
+      fail-under:
+        description: fail when the overall score is below this (e.g. "0.8"), on any event. default -- never
+        type: string
+        default: ""
     secrets:
       # pass only the ones your agents use.
       CLAUDE_CODE_OAUTH_TOKEN:
@@ -172,3 +176,14 @@ jobs:
           OVERALL: ${{ steps.report.outputs.overall }}
           BASE_OVERALL: ${{ steps.base.outputs.overall }}
         run: bash .pats-action/.github/scripts/gate.sh
+
+      - name: Check minimum score
+        if: inputs.fail-under != ''
+        env:
+          FAIL_UNDER: ${{ inputs.fail-under }}
+          OVERALL: ${{ steps.report.outputs.overall }}
+        run: |
+          if awk -v o="$OVERALL" -v t="$FAIL_UNDER" 'BEGIN { exit !(o == "" || o < t) }'; then
+            echo "::error::overall score ${OVERALL:-n/a} is below fail-under=$FAIL_UNDER"
+            exit 1
+          fi

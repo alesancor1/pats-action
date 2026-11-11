@@ -8,7 +8,7 @@ pats is untouched; this repo only installs and drives it.
 | [`actions/run`](actions/run/action.yaml) | `pats-version`, `working-directory`, `run-args`, `score-args`, `artifact-name` | installs pats, runs `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
 | [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
-| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-version`, `run-args`, `score-args`, `max-regression` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
+| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-version`, `run-args`, `score-args`, `max-regression`, `fail-under` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
 `render_report.py`, and `.github/scripts/` for the workflows), and the yaml only wires inputs to them.
@@ -31,6 +31,7 @@ jobs:
       run-args: -s smoke -j -1
       score-args: -s smoke
       max-regression: "0.05"
+      fail-under: "0.8"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -51,6 +52,9 @@ the base comparison is skipped when `repository` is set.
 with `max-regression` set, a pr fails when its score is more than that below the
 base branch's (e.g. `0.05`: base 0.80 -> pr 0.74 fails, 0.76 passes). if there's no
 base score, the check is skipped with a warning.
+
+with `fail-under` set, the run fails whenever the overall score is below it
+(e.g. `0.8`), on any event. a missing score also fails.
 
 the workflow checks itself out at the pinned commit (via `job.workflow_repository`
 / `job.workflow_sha`) and uses its actions by path (`./.pats-action/actions/...`).
