@@ -1,0 +1,99 @@
+# installs pats, runs `pats run` + `pats score` in an already checked-out
+# repo, and uploads a json report (see README.md#report-json) as an artifact.
+#
+# harness credentials come from the step's env, under the names pats reads
+# (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
+# COPILOT_GITHUB_TOKEN), plus CLAUDE_CREDENTIALS / CODEX_AUTH, which hold the
+# contents of ~/.claude/.credentials.json / ~/.codex/auth.json.
+# needs a linux runner with docker.
+name: pats run
+description: Install pats, run + score its suites, upload the json report
+
+inputs:
+  pats-version:
+    description: pats version to install (a tag like v0.7.6, or latest). pin it -- it also pins the sandbox image
+    default: latest
+  working-directory:
+    description: dir holding pats.yaml
+    default: "."
+  run-args:
+    description: extra args for `pats run`, e.g. "-s smoke -j -1"
+    default: ""
+  score-args:
+    description: extra args for `pats score`, e.g. "-s smoke -j -1"
+    default: ""
+  artifact-name:
+    description: name of the uploaded json report artifact
+    default: pats-report
+
+outputs:
+  report:
+    description: absolute path of the json report
+    value: ${{ steps.collect.outputs.report }}
+  overall:
+    description: overall score (empty if not scored)
+    value: ${{ steps.collect.outputs.overall }}
+  run-dir:
+    description: absolute path of the run dir, for uploading logs/outputs yourself
+    value: ${{ steps.collect.outputs.run-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: stable
+        cache: false
+
+    - name: Install pats
+      shell: bash
+      env:
+        PATS_VERSION: ${{ inputs.pats-version }}
+      run: bash "$GITHUB_ACTION_PATH/install.sh"
+
+    - name: Write credential files
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/creds.sh" write
+
+    - name: pats run + score
+      id: pats
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUN_ARGS: ${{ inputs.run-args }}
+        SCORE_ARGS: ${{ inputs.score-args }}
+      run: bash "$GITHUB_ACTION_PATH/pats.sh"
+
+    - name: Remove credential files
+      if: always()
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/creds.sh" remove
+
+    - name: Collect json report
+      id: collect
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUN_RC: ${{ steps.pats.outputs.run-exit-code }}
+        SCORE_RC: ${{ steps.pats.outputs.score-exit-code }}
+      run: bash "$GITHUB_ACTION_PATH/collect.sh"
+
+    - name: Upload json report
+      if: always() && steps.collect.outputs.report != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.collect.outputs.report }}
+
+    - name: Fail on pats errors
+      shell: bash
+      env:
+        RUN_RC: ${{ steps.pats.outputs.run-exit-code }}
+        SCORE_RC: ${{ steps.pats.outputs.score-exit-code }}
+      run: |
+        if [[ "$RUN_RC" != "0" || "$SCORE_RC" != "0" ]]; then
+          echo "::error::pats run exited ${RUN_RC:-n/a}, pats score exited ${SCORE_RC:-n/a}"
+          exit 1
+        fi

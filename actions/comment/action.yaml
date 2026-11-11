@@ -1,0 +1,33 @@
+# posts a sticky comment on the triggering pr with the overall score (compared
+# against the base branch's) and a link to the run summary. re-runs update it
+# in place. pull_request events only.
+name: pats comment
+description: Comment the overall pats score on the pr vs the base branch, linking to the run summary
+
+inputs:
+  overall:
+    description: overall score of the pr head (e.g. the report action's `overall` output)
+    required: true
+  base-overall:
+    description: overall score of the base branch head. empty -> shown as n/a
+    default: ""
+  key:
+    description: identifies the sticky comment, so several reports can each keep their own
+    default: pats
+  github-token:
+    description: needs pull-requests:write
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Post comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        OVERALL: ${{ inputs.overall }}
+        BASE_OVERALL: ${{ inputs.base-overall }}
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+        KEY: ${{ inputs.key }}
+        PR: ${{ github.event.pull_request.number }}
+      run: bash "$GITHUB_ACTION_PATH/comment.sh"

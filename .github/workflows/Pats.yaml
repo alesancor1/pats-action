@@ -1,0 +1,168 @@
+# reusable workflow: check out a repo at a ref, run pats on it, and comment
+# the report on the triggering pr (other events get the job summary only).
+#
+#   run     -- has the secrets, read-only token. uploads the json report.
+#   report  -- no secrets, write token. renders, comments, fails on a regression vs base.
+#
+# each job checks this repo out at the workflow's own commit (job.workflow_*)
+# into .pats-action, so the actions are used by path and always match the
+# version of the workflow the caller pinned.
+name: Pats
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: owner/name of the repo to test. default -- the caller's repo
+        type: string
+        default: ""
+      ref:
+        description: sha / branch / tag to test. default -- the triggering commit (pr head on prs)
+        type: string
+        default: ""
+      working-directory:
+        description: dir inside the repo holding pats.yaml
+        type: string
+        default: "."
+      pats-version:
+        description: pats version to install (tag, or latest)
+        type: string
+        default: latest
+      run-args:
+        description: extra args for `pats run`, e.g. "-s smoke -j -1"
+        type: string
+        default: ""
+      score-args:
+        description: extra args for `pats score`, e.g. "-s smoke"
+        type: string
+        default: ""
+      max-regression:
+        description: on prs, fail when the score is more than this below the base branch's (e.g. "0.05"). default -- never
+        type: string
+        default: ""
+    secrets:
+      # pass only the ones your agents use.
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: claude-cli-keyless, from `claude setup-token` (preferred)
+        required: false
+      ANTHROPIC_API_KEY:
+        description: claude-cli-keyless, api key
+        required: false
+      CLAUDE_CREDENTIALS:
+        description: claude-cli-keyless, contents of ~/.claude/.credentials.json
+        required: false
+      CODEX_AUTH:
+        description: codex-cli-keyless, contents of ~/.codex/auth.json
+        required: false
+      COPILOT_GITHUB_TOKEN:
+        description: copilot-cli-keyless
+        required: false
+      OPENROUTER_API_KEY:
+        description: opencode-openrouter
+        required: false
+      PATS_CHECKOUT_TOKEN:
+        description: read token for `repository`, when it's private and not the caller's repo
+        required: false
+    outputs:
+      overall:
+        description: overall score
+        value: ${{ jobs.report.outputs.overall }}
+
+jobs:
+  # on prs, also run pats on the base branch head so the comment can compare.
+  # the base run may fail without blocking the report.
+  run:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(github.event_name == 'pull_request' && inputs.repository == '' && '["head", "base"]' || '["head"]') }}
+    continue-on-error: ${{ matrix.target == 'base' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Check out pats-action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pats-action
+          persist-credentials: false
+
+      - name: Check out target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ matrix.target == 'base' && github.event.pull_request.base.ref || inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          token: ${{ secrets.PATS_CHECKOUT_TOKEN || github.token }}
+          path: target
+          persist-credentials: false
+
+      - name: Run pats
+        uses: ./.pats-action/actions/run
+        with:
+          pats-version: ${{ inputs.pats-version }}
+          working-directory: target/${{ inputs.working-directory }}
+          run-args: ${{ inputs.run-args }}
+          score-args: ${{ inputs.score-args }}
+          artifact-name: pats-report-${{ matrix.target }}
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CREDENTIALS: ${{ secrets.CLAUDE_CREDENTIALS }}
+          CODEX_AUTH: ${{ secrets.CODEX_AUTH }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+  report:
+    needs: run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      overall: ${{ steps.report.outputs.overall }}
+    steps:
+      - name: Check out pats-action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pats-action
+          persist-credentials: false
+
+      - name: Render report
+        id: report
+        uses: ./.pats-action/actions/report
+        with:
+          artifact-name: pats-report-head
+
+      - name: Download base report
+        if: github.event_name == 'pull_request' && inputs.repository == ''
+        continue-on-error: true   # base run failed or was skipped -> n/a
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pats-report-base
+          path: base
+
+      - name: Read base score
+        id: base
+        if: github.event_name == 'pull_request'
+        run: echo "overall=$(jq -r '.scores.overall // empty' base/pats-report.json 2>/dev/null)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment
+        if: github.event_name == 'pull_request'
+        uses: ./.pats-action/actions/comment
+        with:
+          overall: ${{ steps.report.outputs.overall }}
+          base-overall: ${{ steps.base.outputs.overall }}
+          key: ${{ inputs.repository }}/${{ inputs.working-directory }}
+
+      - name: Check for regression
+        if: github.event_name == 'pull_request'
+        env:
+          MAX_REGRESSION: ${{ inputs.max-regression }}
+          OVERALL: ${{ steps.report.outputs.overall }}
+          BASE_OVERALL: ${{ steps.base.outputs.overall }}
+        run: bash .pats-action/.github/scripts/gate.sh
