@@ -1,76 +1,39 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repository": "acme/skills",
   "sha": "0123456789abcdef0123456789abcdef01234567",
-  "pats_version": "0.7.6",
-  "run_name": "001-20261111-foo-bar",
+  "pats_version": "1.0.0",
   "run_exit_code": 0,
   "score_exit_code": 0,
   "workflow_run_url": "https://github.com/acme/skills/actions/runs/1",
-  "scores": {
-    "run_dir": "/tmp/x",
-    "cells": [
-      {
-        "agent": "a1",
-        "task": "t1",
-        "scorer": "s1",
-        "score": 1.0
-      },
-      {
-        "agent": "a1",
-        "task": "t2",
-        "scorer": "s1",
-        "score": 0.5
-      },
-      {
-        "agent": "a1",
-        "task": "t2",
-        "scorer": "s2",
-        "score": 0.0
-      },
-      {
-        "agent": "a2",
-        "task": "t1",
-        "scorer": "s1",
-        "score": 0.9
-      }
+  "report": {
+    "version": 1,
+    "run": {"name": "001-20261113-foo-bar", "dir": "/home/runner/work/x/.pats/runs/001-20261113-foo-bar"},
+    "overall": 0.7625,
+    "agents": [
+      {"name": "a1", "mean": 0.625, "failed_pairs": null},
+      {"name": "a2", "mean": 0.9, "failed_pairs": null}
     ],
-    "per_pair": {
-      "a1/t1": 1.0,
-      "a1/t2": 0.25,
-      "a2/t1": 0.9
-    },
-    "per_agent": {
-      "a1": 0.625,
-      "a2": 0.9
-    },
-    "overall": 0.7625
-  },
-  "pairs": [
-    {
-      "agent": "a1",
-      "task": "t1",
-      "status": "ok",
-      "duration_s": 12.3,
-      "summary": {
-        "num_turns": 4,
-        "input_tokens": 100,
-        "output_tokens": 50,
-        "has_cost": true,
-        "cost_usd": 0.01,
-        "tools": {
-          "Bash": 3
-        }
-      }
-    },
-    {
-      "agent": "a2",
-      "task": "t1",
-      "status": "nonzero",
-      "duration_s": 3.0,
-      "denied_egress": [
-        "evil.example"
-      ]
-    }
-  ]
+    "pairs": [
+      {"agent": "a1", "task": "t1", "mean": 1.0, "status": "ok", "error": null, "duration_s": 12.3,
+       "turns": 4, "input_tokens": 100, "cache_read_tokens": null, "cache_write_tokens": null,
+       "output_tokens": 50, "reasoning_tokens": null, "cost_usd": 0.01, "cost_estimated": false,
+       "premium_requests": null, "denied_egress": [], "blocked_egress": [], "egress_enforced": true},
+      {"agent": "a1", "task": "t2", "mean": 0.25, "status": "ok", "error": null, "duration_s": 20.0,
+       "turns": 7, "input_tokens": 300, "cache_read_tokens": null, "cache_write_tokens": null,
+       "output_tokens": 90, "reasoning_tokens": null, "cost_usd": 0.02, "cost_estimated": true,
+       "premium_requests": null, "denied_egress": [], "blocked_egress": [], "egress_enforced": true},
+      {"agent": "a2", "task": "t1", "mean": 0.9, "status": "nonzero", "error": null, "duration_s": 3.0,
+       "turns": null, "input_tokens": null, "cache_read_tokens": null, "cache_write_tokens": null,
+       "output_tokens": null, "reasoning_tokens": null, "cost_usd": null, "cost_estimated": false,
+       "premium_requests": null, "denied_egress": ["evil.example"], "blocked_egress": [], "egress_enforced": true}
+    ],
+    "scores": [
+      {"agent": "a1", "task": "t1", "scorer": "s1", "score": 1.0},
+      {"agent": "a1", "task": "t2", "scorer": "s1", "score": 0.5},
+      {"agent": "a1", "task": "t2", "scorer": "s2", "score": 0.0},
+      {"agent": "a2", "task": "t1", "scorer": "s1", "score": 0.9}
+    ],
+    "judges": []
+  }
 }

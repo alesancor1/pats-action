@@ -24,16 +24,16 @@ on:
         description: dir inside the repo holding pats.yaml
         type: string
         default: "."
-      pats-version:
-        description: pats version to install (tag, or latest)
+      pats-channel:
+        description: snap channel to install pats from (e.g. latest/candidate, latest/stable)
         type: string
-        default: latest
+        default: latest/stable
       run-args:
-        description: extra args for `pats run`, e.g. "-s smoke -j -1"
+        description: extra args for `pats run`, e.g. "-S smoke -j -1" (-S selects suites)
         type: string
         default: ""
       score-args:
-        description: extra args for `pats score`, e.g. "-s smoke"
+        description: extra args for `pats score`, e.g. "-S smoke" (-S suites, -s scorers)
         type: string
         default: ""
       max-regression:
@@ -103,16 +103,10 @@ jobs:
           path: target
           persist-credentials: false
 
-      # pats runs task/scorer scripts on the host; uv-script shebangs are common.
-      - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: false
-
       - name: Run pats
         uses: ./.pats-action/actions/run
         with:
-          pats-version: ${{ inputs.pats-version }}
+          pats-channel: ${{ inputs.pats-channel }}
           working-directory: target/${{ inputs.working-directory }}
           run-args: ${{ inputs.run-args }}
           score-args: ${{ inputs.score-args }}
@@ -159,7 +153,7 @@ jobs:
       - name: Read base score
         id: base
         if: github.event_name == 'pull_request'
-        run: echo "overall=$(jq -r '.scores.overall // empty' base/pats-report.json 2>/dev/null)" >> "$GITHUB_OUTPUT"
+        run: echo "overall=$(jq -r '.report.overall // empty' base/pats-report.json 2>/dev/null)" >> "$GITHUB_OUTPUT"
 
       - name: Comment
         if: github.event_name == 'pull_request'

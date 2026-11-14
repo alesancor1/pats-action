@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Render a pats-action json report (schema_version 1) as github markdown.
+"""Render a pats-action json report (schema_version 2) as github markdown.
+
+the report wraps pats' own `pats report --json` document (version 1) under
+`report`, plus where it came from (repo, sha, exit codes).
 
 usage: render_report.py REPORT_JSON [-o OUT_MD] [--title TITLE] [--max-chars N] [--step-summary]
 
@@ -17,7 +20,8 @@ import os
 import sys
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+PATS_REPORT_VERSION = 1  # `pats report --json` document version
 # github caps comment bodies at 65536 chars; leave room for a marker/header.
 DEFAULT_MAX_CHARS = 64000
 
@@ -41,17 +45,21 @@ def esc(s: Any) -> str:
     return str(s).replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def score_table(scores: dict) -> list[str]:
-    per_pair: dict[str, float] = scores.get("per_pair") or {}
-    per_agent: dict[str, float] = scores.get("per_agent") or {}
-    agents = sorted(per_agent) or sorted({k.split("/", 1)[0] for k in per_pair})
-    tasks = {k.split("/", 1)[1] for k in per_pair if "/" in k}
+def pair_means(doc: dict) -> dict[tuple[str, str], float]:
+    return {(p["agent"], p["task"]): p["mean"] for p in doc.get("pairs") or [] if p.get("mean") is not None}
+
+
+def score_table(doc: dict) -> list[str]:
+    means = pair_means(doc)
+    agent_means = {a["name"]: a.get("mean") for a in doc.get("agents") or []}
+    agents = sorted(agent_means) or sorted({a for a, _ in means})
+    tasks = {t for _, t in means}
     if not tasks:
         return ["_no scores recorded._"]
 
-    # worst-first, like pats' terminal report: min cell across agents.
+    # worst-first, like pats' terminal report: min pair mean across agents.
     def worst(task: str) -> float:
-        vals = [per_pair[f"{a}/{task}"] for a in agents if f"{a}/{task}" in per_pair]
+        vals = [means[(a, task)] for a in agents if (a, task) in means]
         return min(vals) if vals else math.inf
 
     ordered = sorted(tasks, key=lambda t: (worst(t), t))
@@ -60,65 +68,62 @@ def score_table(scores: dict) -> list[str]:
         "|---|" + "---:|" * len(agents),
     ]
     for t in ordered:
-        cells = [fmt_score(per_pair.get(f"{a}/{t}")) for a in agents]
+        cells = [fmt_score(means.get((a, t))) for a in agents]
         lines.append(f"| {esc(t)} | " + " | ".join(cells) + " |")
     if len(ordered) > 1:
-        cells = [fmt_score(per_agent.get(a)) for a in agents]
+        cells = [fmt_score(agent_means.get(a)) for a in agents]
         lines.append("| **avg** | " + " | ".join(cells) + " |")
     return lines
 
 
-def breakdown(scores: dict) -> list[str]:
-    per_pair: dict[str, float] = scores.get("per_pair") or {}
-    cells = scores.get("cells") or []
-    if not cells:
+def breakdown(doc: dict) -> list[str]:
+    means = pair_means(doc)
+    scores = doc.get("scores") or []
+    if not scores:
         return []
-    cells = sorted(
-        cells,
-        key=lambda c: (
-            per_pair.get(f"{c['agent']}/{c['task']}", 0.0),
-            f"{c['agent']}/{c['task']}",
-            c["score"],
-            c["scorer"],
-        ),
+    scores = sorted(
+        scores,
+        key=lambda c: (means.get((c["agent"], c["task"]), 0.0), c["agent"], c["task"], c["score"], c["scorer"]),
     )
     lines = ["<details><summary>scorer breakdown</summary>", "",
              "| pair | scorer | score |", "|---|---|---:|"]
-    for c in cells:
+    for c in scores:
         lines.append(f"| {esc(c['agent'])}/{esc(c['task'])} | {esc(c['scorer'])} | {fmt_score(c['score'])} |")
     lines += ["", "</details>"]
     return lines
+
+
+def num(v: Any) -> str:
+    return "-" if v is None else str(v)
 
 
 def stats(pairs: list[dict]) -> list[str]:
     if not pairs:
         return []
     lines = ["<details><summary>run stats</summary>", "",
-             "| pair | status | time | turns | in | out | cost | tools | denied egress |",
-             "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+             "| pair | status | time | turns | in | out | cost | denied egress |",
+             "|---|---|---:|---:|---:|---:|---:|---|"]
     tot_time = tot_cost = 0.0
+    estimated = False
     for p in sorted(pairs, key=lambda p: (p.get("agent", ""), p.get("task", ""))):
-        s = p.get("summary") or {}
-        turns = inp = out = cost = tools = "-"
-        if s:
-            turns = str(s.get("num_turns", 0))
-            inp = str(s.get("input_tokens", 0))
-            out = str(s.get("output_tokens", 0))
-            tools = str(sum((s.get("tools") or {}).values()))
-            if s.get("has_cost"):
-                cost = f"${s.get('cost_usd', 0.0):.3f}"
-            tot_cost += s.get("cost_usd", 0.0)
-        dur = p.get("duration_s", 0.0)
-        tot_time += dur
-        status = p.get("status", "?")
+        dur = p.get("duration_s")
+        tot_time += dur or 0.0
+        cost = "-"
+        if p.get("cost_usd") is not None:
+            mark = "~" if p.get("cost_estimated") else ""
+            estimated |= bool(p.get("cost_estimated"))
+            cost = f"{mark}${p['cost_usd']:.3f}"
+            tot_cost += p["cost_usd"]
+        status = p.get("status") or "?"
         if status != "ok":
             status = f":x: {status}"
-        denied = ", ".join(p.get("denied_egress") or []) or "-"
+        denied = ", ".join((p.get("denied_egress") or []) + (p.get("blocked_egress") or [])) or "-"
         lines.append(
-            f"| {esc(p.get('agent', '?'))}/{esc(p.get('task', '?'))} | {esc(status)} | {dur:.1f}s "
-            f"| {turns} | {inp} | {out} | {cost} | {tools} | {esc(denied)} |"
+            f"| {esc(p.get('agent', '?'))}/{esc(p.get('task', '?'))} | {esc(status)} "
+            f"| {'-' if dur is None else f'{dur:.1f}s'} | {num(p.get('turns'))} "
+            f"| {num(p.get('input_tokens'))} | {num(p.get('output_tokens'))} | {cost} | {esc(denied)} |"
         )
-    lines.append(f"| **total** | | {tot_time:.1f}s | | | | ${tot_cost:.3f} | | |")
+    lines.append(f"| **total** | | {tot_time:.1f}s | | | | {'~' if estimated else ''}${tot_cost:.3f} | |")
     lines += ["", "</details>"]
     return lines
 
@@ -127,6 +132,9 @@ def render(report: dict, title: str = "pats report") -> str:
     version = report.get("schema_version")
     if version != SCHEMA_VERSION:
         raise ValueError(f"unsupported report schema_version {version!r} (want {SCHEMA_VERSION})")
+    doc = report.get("report")
+    if doc is not None and doc.get("version") != PATS_REPORT_VERSION:
+        raise ValueError(f"unsupported `pats report --json` version {doc.get('version')!r} (want {PATS_REPORT_VERSION})")
 
     meta = [f"`{report.get('repository', '?')}` @ `{(report.get('sha') or '?')[:12]}`"]
     if report.get("pats_version"):
@@ -143,20 +151,19 @@ def render(report: dict, title: str = "pats report") -> str:
                   f"`pats score` exited {score_rc if score_rc is not None else 'n/a'} -- see the workflow log.",
                   ""]
 
-    scores = report.get("scores")
-    if scores:
-        run = f"**run:** `{report['run_name']}` &nbsp; " if report.get("run_name") else ""
-        lines += [f"{run}**overall:** {fmt_score(scores.get('overall'), bold=True)}", ""]
-        lines += score_table(scores)
-        bd = breakdown(scores)
+    if doc:
+        name = (doc.get("run") or {}).get("name")
+        run = f"**run:** `{name}` &nbsp; " if name else ""
+        lines += [f"{run}**overall:** {fmt_score(doc.get('overall'), bold=True)}", ""]
+        lines += score_table(doc)
+        bd = breakdown(doc)
         if bd:
             lines += [""] + bd
+        st = stats(doc.get("pairs") or [])
+        if st:
+            lines += [""] + st
     else:
         lines.append("_no scores: pats produced no scored run._")
-
-    st = stats(report.get("pairs") or [])
-    if st:
-        lines += [""] + st
     return "\n".join(lines) + "\n"
 
 
@@ -191,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             f.write(md)
 
     if gh_out := os.environ.get("GITHUB_OUTPUT"):
-        overall = (report.get("scores") or {}).get("overall")
+        overall = (report.get("report") or {}).get("overall")
         with open(gh_out, "a", encoding="utf-8") as f:
             f.write(f"overall={'' if overall is None else overall}\n")
             if args.output:

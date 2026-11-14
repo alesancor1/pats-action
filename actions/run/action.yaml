@@ -1,26 +1,29 @@
-# installs pats, runs `pats run` + `pats score` in an already checked-out
-# repo, and uploads a json report (see README.md#report-json) as an artifact.
+# installs the pats snap, runs `pats init` + `pats run` + `pats score` in an
+# already checked-out repo, and uploads a json report (see
+# README.md#report-json) as an artifact.
 #
 # harness credentials come from the step's env, under the names pats reads
 # (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
 # COPILOT_GITHUB_TOKEN), plus CLAUDE_CREDENTIALS / CODEX_AUTH, which hold the
 # contents of ~/.claude/.credentials.json / ~/.codex/auth.json.
-# needs a linux runner with docker.
+# needs a linux runner with docker and snapd. the snap is strictly confined: the
+# project must sit under the home and not in a hidden dir (any checkout under
+# GITHUB_WORKSPACE is fine), and every task/scorer script needs a step-sandbox.
 name: pats run
 description: Install pats, run + score its suites, upload the json report
 
 inputs:
-  pats-version:
-    description: pats version to install (a tag like v0.7.6, or latest). pin it -- it also pins the sandbox image
-    default: latest
+  pats-channel:
+    description: snap channel to install pats from (e.g. latest/candidate, latest/stable). the pats version also pins the sandbox images
+    default: latest/stable
   working-directory:
     description: dir holding pats.yaml
     default: "."
   run-args:
-    description: extra args for `pats run`, e.g. "-s smoke -j -1"
+    description: extra args for `pats run`, e.g. "-S smoke -j -1" (-S selects suites)
     default: ""
   score-args:
-    description: extra args for `pats score`, e.g. "-s smoke -j -1"
+    description: extra args for `pats score`, e.g. "-S smoke -j -1" (-S suites, -s scorers)
     default: ""
   artifact-name:
     description: name of the uploaded json report artifact
@@ -40,23 +43,18 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-      with:
-        go-version: stable
-        cache: false
-
     - name: Install pats
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
-        PATS_VERSION: ${{ inputs.pats-version }}
+        PATS_CHANNEL: ${{ inputs.pats-channel }}
       run: bash "$GITHUB_ACTION_PATH/install.sh"
 
     - name: Write credential files
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/creds.sh" write
 
-    - name: pats run + score
+    - name: pats init + run + score
       id: pats
       shell: bash
       working-directory: ${{ inputs.working-directory }}

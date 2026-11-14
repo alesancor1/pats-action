@@ -5,10 +5,10 @@ pats is untouched; this repo only installs and drives it.
 
 | piece | inputs | what it does |
 |---|---|---|
-| [`actions/run`](actions/run/action.yaml) | `pats-version`, `working-directory`, `run-args`, `score-args`, `artifact-name` | installs pats, runs `pats run` + `pats score`, uploads a **json report** artifact |
+| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
 | [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
-| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-version`, `run-args`, `score-args`, `max-regression`, `fail-under` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
+| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `run-args`, `score-args`, `max-regression`, `fail-under` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
 `render_report.py`, and `.github/scripts/` for the workflows), and the yaml only wires inputs to them.
@@ -27,9 +27,9 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      pats-version: v0.7.6
-      run-args: -s smoke -j -1
-      score-args: -s smoke
+      pats-channel: latest/stable
+      run-args: -S smoke -j -1
+      score-args: -S smoke
       max-regression: "0.05"
       fail-under: "0.8"
     secrets:
@@ -76,8 +76,10 @@ the workflow takes these secrets, all optional. pass only the ones your agents u
 | `PATS_CHECKOUT_TOKEN` | read access to a private `repository` |
 
 with `actions/run` directly, pass them as step `env` under the same names.
-`CLAUDE_CREDENTIALS` / `CODEX_AUTH` are written to their files with mode 600 and
-deleted afterwards. they hold rotating refresh tokens, so prefer the token forms.
+`CLAUDE_CREDENTIALS` / `CODEX_AUTH` are written with mode 600 to `~/pats-auth/`
+(the snap can't read hidden dirs like `~/.claude`), passed to pats as
+`PATS_CLAUDE_AUTH_PATH` / `PATS_CODEX_AUTH_PATH`, and deleted afterwards. they
+hold rotating refresh tokens, so prefer the token forms.
 
 ## using the actions directly
 
@@ -86,8 +88,8 @@ steps:
   - uses: actions/checkout@<sha>
   - uses: alesancor1/pats-action/actions/run@<sha>
     with:
-      pats-version: v0.7.6
-      run-args: -s smoke
+      pats-channel: latest/stable
+      run-args: -S smoke
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
   - id: report
@@ -109,15 +111,17 @@ the contract between `run` and `report`. anything else can consume it too.
 
 ```jsonc
 {
-  "schema_version": 1,
-  "repository": "owner/name", "sha": "<full sha>", "pats_version": "0.7.6",
-  "run_name": "001-20261111-foo-bar",        // null if pats made no run
-  "run_exit_code": 0, "score_exit_code": 0,
+  "schema_version": 2,
+  "repository": "owner/name", "sha": "<full sha>", "pats_version": "1.0.0",
+  "run_exit_code": 0, "score_exit_code": 0,  // null if the step didn't run
   "workflow_run_url": "https://github.com/...",
-  "scores": { /* pats' scores.json verbatim */ },          // or null
-  "pairs":  [ /* each pair's metadata.json verbatim */ ]
+  "report": { /* `pats report --json` verbatim: run, overall, agents, pairs, scores */ }  // or null
 }
 ```
+
+`report` is pats' own machine interface to a run's results (version 1, see
+pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
+`metadata.json`) as internal. it's `null` when the run was never scored.
 
 ## notes
 
@@ -126,9 +130,21 @@ the contract between `run` and `report`. anything else can consume it too.
   scripts on the host with your secrets.
 - all third-party actions are pinned to a commit sha (version in a trailing comment).
 - `job.workflow_*` isn't available on GitHub Enterprise Server.
-- needs a runner with docker. any `ubuntu-*` hosted runner works. the run job
-  also installs `uv`, since pats runs task/scorer scripts on the host and
-  `#!/usr/bin/env -S uv run --script` shebangs are the usual pattern.
+- needs a runner with docker and snapd. any `ubuntu-*` hosted runner works.
+- pats is installed as a **strict snap** (`sudo snap install pats --channel=...`
+  plus `sudo snap connect pats:docker`), which means:
+  - `pats.yaml` must be in the pats 1.x format.
+  - every task/scorer script (`stage`, `collect`, `prompt-cmd`, `score`) needs a
+    `step-sandbox`: the snap runs nothing on the host.
+  - the project must sit under the home and not in a hidden dir; any checkout
+    under `GITHUB_WORKSPACE` is fine.
+- `pats init` runs with no selectors, so it makes every sandbox the config
+  uses, not just the ones `run-args` selects.
+- engines: docker is always connected (`pats:docker`). if any sandbox in
+  `pats list sandboxes` (agent or step sandbox) uses `driver: lxd`, the run
+  action also installs and initialises the lxd snap, lets pats' bridges past
+  docker's firewall, and connects `pats:lxd`. podman, bwrap and the host driver
+  aren't in the snap.
 
 ## development
 
