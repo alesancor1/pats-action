@@ -69,17 +69,14 @@ the workflow takes these secrets, all optional. pass only the ones your agents u
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude-cli-keyless`, from `claude setup-token` (preferred) |
 | `ANTHROPIC_API_KEY` | `claude-cli-keyless` |
-| `CLAUDE_CREDENTIALS` | `claude-cli-keyless`, contents of `~/.claude/.credentials.json` |
-| `CODEX_AUTH` | `codex-cli-keyless`, contents of `~/.codex/auth.json` |
 | `COPILOT_GITHUB_TOKEN` | `copilot-cli-keyless` |
 | `OPENROUTER_API_KEY` | `opencode-openrouter` |
 | `PATS_CHECKOUT_TOKEN` | read access to a private `repository` |
 
 with `actions/run` directly, pass them as step `env` under the same names.
-`CLAUDE_CREDENTIALS` / `CODEX_AUTH` are written with mode 600 to `~/pats-auth/`
-(the snap can't read hidden dirs like `~/.claude`), passed to pats as
-`PATS_CLAUDE_AUTH_PATH` / `PATS_CODEX_AUTH_PATH`, and deleted afterwards. they
-hold rotating refresh tokens, so prefer the token forms.
+login files (`~/.claude/.credentials.json`, `~/.codex/auth.json`) aren't
+supported: use the token forms. `codex-cli-keyless` has no token form, so it
+can't run in ci.
 
 ## using the actions directly
 

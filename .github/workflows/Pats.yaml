@@ -52,12 +52,6 @@ on:
       ANTHROPIC_API_KEY:
         description: claude-cli-keyless, api key
         required: false
-      CLAUDE_CREDENTIALS:
-        description: claude-cli-keyless, contents of ~/.claude/.credentials.json
-        required: false
-      CODEX_AUTH:
-        description: codex-cli-keyless, contents of ~/.codex/auth.json
-        required: false
       COPILOT_GITHUB_TOKEN:
         description: copilot-cli-keyless
         required: false
@@ -114,8 +108,6 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLAUDE_CREDENTIALS: ${{ secrets.CLAUDE_CREDENTIALS }}
-          CODEX_AUTH: ${{ secrets.CODEX_AUTH }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 

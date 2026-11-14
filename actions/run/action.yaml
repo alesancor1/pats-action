@@ -4,8 +4,7 @@
 #
 # harness credentials come from the step's env, under the names pats reads
 # (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
-# COPILOT_GITHUB_TOKEN), plus CLAUDE_CREDENTIALS / CODEX_AUTH, which hold the
-# contents of ~/.claude/.credentials.json / ~/.codex/auth.json.
+# COPILOT_GITHUB_TOKEN).
 # needs a linux runner with docker and snapd. the snap is strictly confined: the
 # project must sit under the home and not in a hidden dir (any checkout under
 # GITHUB_WORKSPACE is fine), and every task/scorer script needs a step-sandbox.
@@ -50,10 +49,6 @@ runs:
         PATS_CHANNEL: ${{ inputs.pats-channel }}
       run: bash "$GITHUB_ACTION_PATH/install.sh"
 
-    - name: Write credential files
-      shell: bash
-      run: bash "$GITHUB_ACTION_PATH/creds.sh" write
-
     - name: pats init + run + score
       id: pats
       shell: bash
@@ -62,11 +57,6 @@ runs:
         RUN_ARGS: ${{ inputs.run-args }}
         SCORE_ARGS: ${{ inputs.score-args }}
       run: bash "$GITHUB_ACTION_PATH/pats.sh"
-
-    - name: Remove credential files
-      if: always()
-      shell: bash
-      run: bash "$GITHUB_ACTION_PATH/creds.sh" remove
 
     - name: Collect json report
       id: collect
