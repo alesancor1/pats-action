@@ -8,7 +8,7 @@ pats is untouched; this repo only installs and drives it.
 | [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
 | [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
-| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment`, `allow-unsafe-pr-checkout` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
+| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
 `render_report.py`, and `.github/scripts/` for the workflows), and the yaml only wires inputs to them.
@@ -98,18 +98,21 @@ jobs:
       pull-requests: write
     with:
       environment: pats-forks
-      allow-unsafe-pr-checkout: true
       run-args: -S smoke -j -1
       score-args: -S smoke
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
 - the environment needs **required reviewers**. the run job waits for one of
   them, and each push to the pr is a new run to approve. an environment with no
   reviewers gates nothing.
-- the head is checked out by sha, so an approval covers that one commit.
+- the fork's head is checked out only on `pull_request_target` with an
+  `environment` set, and by sha, so an approval covers that one commit.
 - keep the keys as secrets of that environment, under the names in
-  [credentials](#credentials), and leave them out of the caller's `secrets:`.
-  they then reach the run job only, and only once it's approved.
+  [credentials](#credentials), and still pass them in `secrets:`: a reusable
+  workflow sees only what its caller passes. in the run job the environment's
+  secret wins over a repo secret of the same name.
 - approving a run trusts the commit: the fork's `pats.yaml`, steps and skills
   all run with the key. use a key with a spend cap, apart from the one your own
   prs use.
