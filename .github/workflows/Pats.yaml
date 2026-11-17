@@ -48,10 +48,6 @@ on:
         description: environment the run job sits in, for its required reviewers and its secrets. default -- none
         type: string
         default: ""
-      allow-unsafe-pr-checkout:
-        description: check out a fork pr's head under `pull_request_target`, which actions/checkout refuses by default. only with an `environment` that has required reviewers
-        type: boolean
-        default: false
     secrets:
       # pass only the ones your agents use. under an `environment`, its own
       # secret of the same name is used in place of the one passed.
@@ -106,7 +102,7 @@ jobs:
           token: ${{ secrets.PATS_CHECKOUT_TOKEN || github.token }}
           path: target
           persist-credentials: false
-          allow-unsafe-pr-checkout: ${{ inputs.allow-unsafe-pr-checkout }}
+          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' && inputs.environment != '' }}
 
       - name: Run pats
         uses: ./.pats-action/actions/run
