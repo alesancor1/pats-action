@@ -1,6 +1,6 @@
 # posts a sticky comment on the triggering pr with the overall score (compared
 # against the base branch's) and a link to the run summary. re-runs update it
-# in place. pull_request events only.
+# in place. pull request events only (`pull_request`, `pull_request_target`).
 name: pats comment
 description: Comment the overall pats score on the pr vs the base branch, linking to the run summary
 
