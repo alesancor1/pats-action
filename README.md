@@ -8,7 +8,7 @@ pats is untouched; this repo only installs and drives it.
 | [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
 | [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
-| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `run-args`, `score-args`, `max-regression`, `fail-under` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
+| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
 `render_report.py`, and `.github/scripts/` for the workflows), and the yaml only wires inputs to them.
@@ -78,6 +78,46 @@ login files (`~/.claude/.credentials.json`, `~/.codex/auth.json`) aren't
 supported: use the token forms. `codex-cli-keyless` has no token form, so it
 can't run in ci.
 
+## fork prs
+
+a pr from a fork gets no secrets on `pull_request`, so its agents can't
+authenticate. to evaluate one, run on `pull_request_target` behind an
+environment:
+
+```yaml
+# .github/workflows/pats-forks.yaml
+name: pats (forks)
+on: pull_request_target
+
+jobs:
+  pats:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    uses: alesancor1/pats-action/.github/workflows/Pats.yaml@<sha> # vX.Y.Z
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      environment: pats-forks
+      run-args: -S smoke -j -1
+      score-args: -S smoke
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+- the environment needs **required reviewers**. the run job waits for one of
+  them, and each push to the pr is a new run to approve. an environment with no
+  reviewers gates nothing.
+- the fork's head is checked out only on `pull_request_target` with an
+  `environment` set, and by sha, so an approval covers that one commit.
+- keep the keys as secrets of that environment, under the names in
+  [credentials](#credentials), and still pass them in `secrets:`: a reusable
+  workflow sees only what its caller passes. in the run job the environment's
+  secret wins over a repo secret of the same name.
+- approving a run trusts the commit: the fork's `pats.yaml`, steps and skills
+  all run with the key. use a key with a spend cap, apart from the one your own
+  prs use.
+- give the `pull_request` workflow the opposite `if`, so a fork pr skips it.
+
 ## using the actions directly
 
 ```yaml
@@ -122,9 +162,9 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
 
 ## notes
 
-- **fork prs** get no secrets, so the agents can't authenticate. don't use
-  `pull_request_target` plus a checkout of the fork's head. that runs untrusted
-  scripts on the host with your secrets.
+- **fork prs** get no secrets on `pull_request`. see [fork prs](#fork-prs), and
+  don't run `pull_request_target` on a fork's head without an environment that
+  has required reviewers: the fork's config and scripts get your keys.
 - all third-party actions are pinned to a commit sha (version in a trailing comment).
 - `job.workflow_*` isn't available on GitHub Enterprise Server.
 - needs a runner with docker and snapd. any `ubuntu-*` hosted runner works.

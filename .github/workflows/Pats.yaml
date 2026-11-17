@@ -44,8 +44,13 @@ on:
         description: fail when the overall score is below this (e.g. "0.8"), on any event. default -- never
         type: string
         default: ""
+      environment:
+        description: environment the run job sits in, for its required reviewers and its secrets. default -- none
+        type: string
+        default: ""
     secrets:
-      # pass only the ones your agents use.
+      # pass only the ones your agents use. under an `environment`, its own
+      # secret of the same name is used in place of the one passed.
       CLAUDE_CODE_OAUTH_TOKEN:
         description: claude-cli-keyless, from `claude setup-token` (preferred)
         required: false
@@ -70,10 +75,11 @@ jobs:
   # on prs, also run pats on the base branch head so the comment can compare.
   # the base run may fail without blocking the report.
   run:
+    environment: ${{ inputs.environment }}
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(github.event_name == 'pull_request' && inputs.repository == '' && '["head", "base"]' || '["head"]') }}
+        target: ${{ fromJSON(startsWith(github.event_name, 'pull_request') && inputs.repository == '' && '["head", "base"]' || '["head"]') }}
     continue-on-error: ${{ matrix.target == 'base' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -96,6 +102,7 @@ jobs:
           token: ${{ secrets.PATS_CHECKOUT_TOKEN || github.token }}
           path: target
           persist-credentials: false
+          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' && inputs.environment != '' }}
 
       - name: Run pats
         uses: ./.pats-action/actions/run
@@ -135,7 +142,7 @@ jobs:
           artifact-name: pats-report-head
 
       - name: Download base report
-        if: github.event_name == 'pull_request' && inputs.repository == ''
+        if: startsWith(github.event_name, 'pull_request') && inputs.repository == ''
         continue-on-error: true   # base run failed or was skipped -> n/a
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -144,11 +151,11 @@ jobs:
 
       - name: Read base score
         id: base
-        if: github.event_name == 'pull_request'
+        if: startsWith(github.event_name, 'pull_request')
         run: echo "overall=$(jq -r '.report.overall // empty' base/pats-report.json 2>/dev/null)" >> "$GITHUB_OUTPUT"
 
       - name: Comment
-        if: github.event_name == 'pull_request'
+        if: startsWith(github.event_name, 'pull_request')
         uses: ./.pats-action/actions/comment
         with:
           overall: ${{ steps.report.outputs.overall }}
@@ -156,7 +163,7 @@ jobs:
           key: ${{ inputs.repository }}/${{ inputs.working-directory }}
 
       - name: Check for regression
-        if: github.event_name == 'pull_request'
+        if: startsWith(github.event_name, 'pull_request')
         env:
           MAX_REGRESSION: ${{ inputs.max-regression }}
           OVERALL: ${{ steps.report.outputs.overall }}
