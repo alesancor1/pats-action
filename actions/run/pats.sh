@@ -5,13 +5,14 @@
 # to $GITHUB_OUTPUT as run-exit-code / score-exit-code so the report is
 # collected either way. a failed init counts as a failed run.
 #
-# RUN_ARGS / SCORE_ARGS are split on whitespace (no quoting).
+# INIT_ARGS / RUN_ARGS / SCORE_ARGS are split on whitespace (no quoting).
 set -uo pipefail
 
+read -ra init_args <<< "${INIT_ARGS:-}"
 read -ra run_args <<< "${RUN_ARGS:-}"
 read -ra score_args <<< "${SCORE_ARGS:-}"
 
-pats init
+pats init "${init_args[@]}"
 run_rc=$?
 if [[ "$run_rc" == 0 ]]; then
   pats run "${run_args[@]}"

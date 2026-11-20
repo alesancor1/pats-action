@@ -28,6 +28,10 @@ on:
         description: snap channel to install pats from (e.g. latest/candidate, latest/stable)
         type: string
         default: latest/stable
+      init-args:
+        description: extra args for `pats init`, e.g. "-S smoke" (only the sandboxes that suite uses). default -- every sandbox in the config
+        type: string
+        default: ""
       run-args:
         description: extra args for `pats run`, e.g. "-S smoke -j -1" (-S selects suites)
         type: string
@@ -109,6 +113,7 @@ jobs:
         with:
           pats-channel: ${{ inputs.pats-channel }}
           working-directory: target/${{ inputs.working-directory }}
+          init-args: ${{ inputs.init-args }}
           run-args: ${{ inputs.run-args }}
           score-args: ${{ inputs.score-args }}
           artifact-name: pats-report-${{ matrix.target }}

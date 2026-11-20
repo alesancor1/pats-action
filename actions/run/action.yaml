@@ -18,6 +18,9 @@ inputs:
   working-directory:
     description: dir holding pats.yaml
     default: "."
+  init-args:
+    description: extra args for `pats init`, e.g. "-S smoke" (only the sandboxes that suite uses). default -- every sandbox in the config
+    default: ""
   run-args:
     description: extra args for `pats run`, e.g. "-S smoke -j -1" (-S selects suites)
     default: ""
@@ -54,6 +57,7 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        INIT_ARGS: ${{ inputs.init-args }}
         RUN_ARGS: ${{ inputs.run-args }}
         SCORE_ARGS: ${{ inputs.score-args }}
       run: bash "$GITHUB_ACTION_PATH/pats.sh"
