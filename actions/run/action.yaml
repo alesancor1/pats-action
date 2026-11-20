@@ -1,6 +1,7 @@
 # installs the pats snap, runs `pats init` + `pats run` + `pats score` in an
 # already checked-out repo, and uploads a json report (see
-# README.md#report-json) as an artifact.
+# README.md#report-json) as an artifact. with `logs-artifact-name`, the run's
+# logs too (README.md#logs).
 #
 # harness credentials come from the step's env, under the names pats reads
 # (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
@@ -30,6 +31,9 @@ inputs:
   artifact-name:
     description: name of the uploaded json report artifact
     default: pats-report
+  logs-artifact-name:
+    description: also upload the run's logs (run dir + `pats init` logs) as an artifact of this name, kept 7 days. never on `pull_request_target`. default -- no upload
+    default: ""
 
 outputs:
   report:
@@ -78,6 +82,28 @@ runs:
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ steps.collect.outputs.report }}
+
+    # neither step decides the job. not on pull_request_target: the logs of a
+    # fork's commit would be published from this repo.
+    - name: Stage logs
+      id: logs
+      if: always() && inputs.logs-artifact-name != '' && github.event_name != 'pull_request_target'
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUN_DIR: ${{ steps.collect.outputs.run-dir }}
+      run: bash "$GITHUB_ACTION_PATH/logs.sh"
+
+    - name: Upload logs
+      if: always() && steps.logs.outputs.dir != ''
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.logs-artifact-name }}
+        path: ${{ steps.logs.outputs.dir }}
+        include-hidden-files: true   # what `collect` kept may start with a dot
+        retention-days: 7
 
     - name: Fail on pats errors
       shell: bash

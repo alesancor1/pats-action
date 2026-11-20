@@ -5,10 +5,10 @@ pats is untouched; this repo only installs and drives it.
 
 | piece | inputs | what it does |
 |---|---|---|
-| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `init-args`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
+| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `init-args`, `run-args`, `score-args`, `artifact-name`, `logs-artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact (and the [logs](#logs), if asked) |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
 | [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `name`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
-| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `name`, `init-args`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
+| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `name`, `init-args`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment`, `upload-logs` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
 `render_report.py`, and `.github/scripts/` for the workflows), and the yaml only wires inputs to them.
@@ -99,6 +99,20 @@ jobs:
   each suite is held to `max-regression` against its own base score.
 - under an `environment`, each call's run jobs wait for approval on their own.
 
+## logs
+
+the json report says what a run scored, not why. with `upload-logs: true` each
+run job also uploads `pats-logs-head` / `pats-logs-base` (with `-<name>` on a
+named call), kept 7 days: `run/` is the run dir (per pair the transcript, the
+step logs, `egress.log`, `metadata.json` and what `collect` kept), `init/` the
+`pats init` logs.
+
+- uploaded when pats fails too, and never able to fail the job.
+- regular files only. the value of each [credential](#credentials) is
+  replaced by its name where it is written as is. an encoded one is not found,
+  so read the artifact as you would a public job log.
+- never on `pull_request_target`.
+
 ## credentials
 
 the workflow takes these secrets, all optional. pass only the ones your agents use:
@@ -177,8 +191,9 @@ steps:
 ```
 
 `run-args` / `score-args` are split on whitespace (no quoting). the run action
-fails when pats does, but only after it uploads the report. it outputs `run-dir`
-if you want to upload the full logs yourself.
+fails when pats does, but only after it uploads the report. set
+`logs-artifact-name` to have it upload the [logs](#logs) too, or take its
+`run-dir` output and upload them yourself.
 
 ## report json
 
