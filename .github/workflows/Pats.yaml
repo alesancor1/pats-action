@@ -136,7 +136,6 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-  # renders a json file and calls gh -- no vm needed.
   report:
     needs: run
     runs-on: ubuntu-slim
