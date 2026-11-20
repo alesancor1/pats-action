@@ -3,11 +3,24 @@
 # the base branch's, and a link to the workflow run summary. a hidden marker
 # keyed by $KEY finds the previous comment, which is updated in place.
 #
+# comment.sh [-n|--dry-run]: with it, prints the comment body and posts
+# nothing; GH_TOKEN and PR are then not needed.
+#
 # env: GH_TOKEN, KEY, PR, BASE_REF, OVERALL and BASE_OVERALL (may be empty),
 # NAME (may be empty: what the heading says was evaluated).
 set -euo pipefail
 
-: "${GH_TOKEN:?}" "${KEY:?}" "${PR:?not a pull_request event}"
+dry=0
+case "${1:-}" in
+  "") ;;
+  -n|--dry-run) dry=1 ;;
+  *) echo "usage: comment.sh [-n|--dry-run]" >&2; exit 2 ;;
+esac
+
+: "${KEY:?}"
+if [[ "$dry" == 0 ]]; then
+  : "${GH_TOKEN:?}" "${PR:?not a pull_request event}"
+fi
 repo="$GITHUB_REPOSITORY"
 run_url="$GITHUB_SERVER_URL/$repo/actions/runs/$GITHUB_RUN_ID"
 base="${BASE_REF:-base}"
@@ -57,6 +70,10 @@ name="${NAME:-}"
 name="${name//[^A-Za-z0-9._-]/_}"
 if [[ -n "$name" ]]; then
   body="${body/ pats evaluation/ pats evaluation: \`$name\`}"
+fi
+if [[ "$dry" == 1 ]]; then
+  printf '%s\n' "$body"
+  exit 0
 fi
 marker="$(head -n1 <<< "$body")"
 payload="$(jq -Rs '{body: .}' <<< "$body")"
