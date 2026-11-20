@@ -5,10 +5,10 @@ pats is untouched; this repo only installs and drives it.
 
 | piece | inputs | what it does |
 |---|---|---|
-| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
+| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `init-args`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
-| [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
-| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
+| [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `name`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
+| [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `name`, `init-args`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
 `render_report.py`, and `.github/scripts/` for the workflows), and the yaml only wires inputs to them.
@@ -60,6 +60,44 @@ the workflow checks itself out at the pinned commit (via `job.workflow_repositor
 / `job.workflow_sha`) and uses its actions by path (`./.pats-action/actions/...`).
 the actions therefore always match the workflow version you pinned, with no
 separate tag to keep in sync.
+
+## one job per suite
+
+called once, the workflow scores everything `run-args` selects as one number:
+one base run, one comment, one regression check. to give each suite its own,
+call it from a matrix and `name` each call:
+
+```yaml
+jobs:
+  pats:
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, slow]
+    uses: alesancor1/pats-action/.github/workflows/Pats.yaml@<sha> # vX.Y.Z
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      name: ${{ matrix.suite }}
+      init-args: -S ${{ matrix.suite }}
+      run-args: -S ${{ matrix.suite }} -j -1
+      score-args: -S ${{ matrix.suite }}
+      max-regression: "0.05"
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+- `name` is what keeps the calls apart: its report artifacts are
+  `pats-report-head-<name>` / `pats-report-base-<name>`, and its pr comment is
+  its own, headed with the name. two calls in one run without it fail on the
+  artifact name. letters, digits, `.`, `_` and `-` only: any other name fails
+  the call before pats runs.
+- `init-args` keeps a job to the sandboxes its suite uses. without it every
+  job makes every sandbox in the config.
+- a suite the base branch doesn't have yet fails only its own base run, and
+  each suite is held to `max-regression` against its own base score.
+- under an `environment`, each call's run jobs wait for approval on their own.
 
 ## credentials
 
@@ -175,8 +213,8 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
     `step-sandbox`: the snap runs nothing on the host.
   - the project must sit under the home and not in a hidden dir; any checkout
     under `GITHUB_WORKSPACE` is fine.
-- `pats init` runs with no selectors, so it makes every sandbox the config
-  uses, not just the ones `run-args` selects.
+- `pats init` runs with no selectors unless `init-args` gives some, so it
+  makes every sandbox the config uses, not just the ones `run-args` selects.
 - engines: docker is always connected (`pats:docker`). if any sandbox in
   `pats list sandboxes` (agent or step sandbox) uses `driver: lxd`, the run
   action also installs and initialises the lxd snap, lets pats' bridges past
@@ -186,6 +224,6 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
 ## development
 
 ```sh
-python -m pytest -q tests   # renderer tests
+python -m pytest -q tests   # renderer and script tests
 bash .github/scripts/shellcheck.sh  # all scripts
 ```
