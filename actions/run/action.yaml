@@ -30,6 +30,9 @@ inputs:
   artifact-name:
     description: name of the uploaded json report artifact
     default: pats-report
+  image-cache:
+    description: keep the lxd images `pats init` builds in the actions cache, and take them from there on the next run (`pats init --image-cache`). only with an lxd sandbox; the cache is scoped to the pats version and `init-args`, and never saved from pull_request_target
+    default: "false"
   skip-missing-suites:
     description: when a suite selected with -S / --suite isn't in the config, skip the run (no report, no failure) instead of failing, e.g. on the base branch of a pr that adds the suite
     default: "false"
@@ -52,22 +55,64 @@ runs:
   using: composite
   steps:
     - name: Install pats
+      id: install
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         PATS_CHANNEL: ${{ inputs.pats-channel }}
       run: bash "$GITHUB_ACTION_PATH/install.sh"
 
+    - name: Prepare the image cache
+      id: image-cache
+      if: inputs.image-cache == 'true' && steps.install.outputs.lxd == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INIT_ARGS: ${{ inputs.init-args }}
+      run: bash "$GITHUB_ACTION_PATH/image-cache.sh" prepare
+
+    # the exact key never exists (a saved one ends in the hash of its images),
+    # so this restores the newest cache under the prefix.
+    - name: Restore the image cache
+      id: image-cache-restore
+      if: steps.image-cache.outcome == 'success'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.image-cache.outputs.dir }}
+        key: ${{ steps.image-cache.outputs.prefix }}
+        restore-keys: ${{ steps.image-cache.outputs.prefix }}
+
     - name: pats init + run + score
       id: pats
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        IMAGE_CACHE_DIR: ${{ steps.image-cache.outputs.dir }}
         INIT_ARGS: ${{ inputs.init-args }}
         RUN_ARGS: ${{ inputs.run-args }}
         SCORE_ARGS: ${{ inputs.score-args }}
         SKIP_MISSING_SUITES: ${{ inputs.skip-missing-suites }}
       run: bash "$GITHUB_ACTION_PATH/pats.sh"
+
+    - name: Export the image cache
+      id: image-cache-export
+      if: always() && steps.image-cache.outcome == 'success' && steps.pats.outputs.init-exit-code == '0'
+      continue-on-error: true # a cache that can't be filled is a warning, not a failed run
+      shell: bash
+      env:
+        IMAGE_CACHE_DIR: ${{ steps.image-cache.outputs.dir }}
+        IMAGE_CACHE_PREFIX: ${{ steps.image-cache.outputs.prefix }}
+        IMAGE_CACHE_MATCHED_KEY: ${{ steps.image-cache-restore.outputs.cache-matched-key }}
+      run: bash "$GITHUB_ACTION_PATH/image-cache.sh" export
+
+    # a pull_request_target run checks out code the base branch didn't review,
+    # and a cache it saved would be the base branch's.
+    - name: Save the image cache
+      if: always() && steps.image-cache-export.outputs.changed == 'true' && github.event_name != 'pull_request_target'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.image-cache.outputs.dir }}
+        key: ${{ steps.image-cache-export.outputs.key }}
 
     - name: Collect json report
       id: collect
