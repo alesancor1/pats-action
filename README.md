@@ -91,7 +91,8 @@ jobs:
 - `name` is what keeps the calls apart: its report artifacts are
   `pats-report-head-<name>` / `pats-report-base-<name>`, and its pr comment is
   its own, headed with the name. two calls in one run without it fail on the
-  artifact name.
+  artifact name. letters, digits, `.`, `_` and `-` only: any other name fails
+  the call before pats runs.
 - `init-args` keeps a job to the sandboxes its suite uses. without it every
   job makes every sandbox in the config.
 - a suite the base branch doesn't have yet fails only its own base run, and
@@ -223,6 +224,6 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
 ## development
 
 ```sh
-python -m pytest -q tests   # renderer tests
+python -m pytest -q tests   # renderer and script tests
 bash .github/scripts/shellcheck.sh  # all scripts
 ```
