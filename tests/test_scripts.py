@@ -140,18 +140,24 @@ def test_logs_stages_regular_files_without_the_credentials(tmp_path):
     pair = tmp_path / ".pats" / "runs" / "001" / "agent" / "task"
     pair.mkdir(parents=True)
     (pair / "stdout.log").write_bytes(f"key {KEY} again {KEY}\n\xff".encode("latin-1"))
+    (pair / "stderr.log").write_text(f"{KEY}-longer\n")
     (pair / ".hidden").write_text("kept\n")
     (pair / "link").symlink_to(tmp_path / "secret")
     (pair / "linked-dir").symlink_to(tmp_path, target_is_directory=True)
     os.mkfifo(pair / "pipe")
 
     proc, files, out = stage(
-        tmp_path, RUN_DIR=str(pair.parent.parent), OPENROUTER_API_KEY=f" {KEY}\n", ANTHROPIC_API_KEY=""
+        tmp_path,
+        RUN_DIR=str(pair.parent.parent),
+        OPENROUTER_API_KEY=f" {KEY}\n",
+        ANTHROPIC_API_KEY="",
+        COPILOT_GITHUB_TOKEN=f"{KEY}-longer",
     )
     assert proc.returncode == 0, proc.stderr
     assert files == {
         "init/steps.log": b"built\n",
         "run/agent/task/.hidden": b"kept\n",
+        "run/agent/task/stderr.log": b"[COPILOT_GITHUB_TOKEN]\n",  # whole, not its prefix
         "run/agent/task/stdout.log": b"key [OPENROUTER_API_KEY] again [OPENROUTER_API_KEY]\n\xff",
     }
     assert out == f"dir={tmp_path}/tmp/pats-logs\n"
