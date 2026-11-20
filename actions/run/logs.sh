@@ -31,7 +31,10 @@ find "$out" -type f -exec perl -pi -e '
       $values{$name} = $value if length $value;
     }
   }
-  for my $name (keys %values) { s/\Q$values{$name}\E/[$name]/g }' {} +
+  # longest first: one value may hold another.
+  for my $name (sort { length $values{$b} <=> length $values{$a} } keys %values) {
+    s/\Q$values{$name}\E/[$name]/g;
+  }' {} +
 
 if [[ -n "$(find "$out" -type f -print -quit)" ]]; then
   echo "dir=$out" >> "$GITHUB_OUTPUT"
