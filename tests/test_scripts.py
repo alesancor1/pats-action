@@ -8,6 +8,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 COMMENT = ROOT / "actions" / "comment" / "comment.sh"
 NAME = ROOT / ".github" / "scripts" / "name.sh"
+LOGS = ROOT / "actions" / "run" / "logs.sh"
 
 ENV = {
     "KEY": "acme/skills/tests",
@@ -20,9 +21,10 @@ ENV = {
 }
 
 
-def run(script, *args, **env):
+def run(script, *args, cwd=None, **env):
     return subprocess.run(
         ["bash", str(script), *args],
+        cwd=cwd,
         env={"PATH": os.environ["PATH"], **env},
         capture_output=True,
         text=True,
@@ -114,3 +116,57 @@ def test_name_rejected(name):
 
 def test_name_unset_is_an_unnamed_call():
     assert run(NAME).returncode == 0
+
+
+# --- logs.sh ------------------------------------------------------------------
+
+# shaped like nothing real: a key-like fixture trips secret scanners.
+KEY = "fixture-value-0123456789"
+
+
+def stage(tmp_path, **env):
+    proc = run(
+        LOGS, cwd=tmp_path, RUNNER_TEMP=str(tmp_path / "tmp"), GITHUB_OUTPUT=str(tmp_path / "out"), **env
+    )
+    staged = tmp_path / "tmp" / "pats-logs"
+    files = {str(p.relative_to(staged)): p.read_bytes() for p in staged.rglob("*") if not p.is_dir()}
+    return proc, files, (tmp_path / "out").read_text() if (tmp_path / "out").exists() else ""
+
+
+def test_logs_stages_regular_files_without_the_credentials(tmp_path):
+    (tmp_path / "secret").write_text("not for the artifact\n")
+    (tmp_path / ".pats" / "init").mkdir(parents=True)
+    (tmp_path / ".pats" / "init" / "steps.log").write_text("built\n")
+    pair = tmp_path / ".pats" / "runs" / "001" / "agent" / "task"
+    pair.mkdir(parents=True)
+    (pair / "stdout.log").write_bytes(f"key {KEY} again {KEY}\n\xff".encode("latin-1"))
+    (pair / ".hidden").write_text("kept\n")
+    (pair / "link").symlink_to(tmp_path / "secret")
+    (pair / "linked-dir").symlink_to(tmp_path, target_is_directory=True)
+    os.mkfifo(pair / "pipe")
+
+    proc, files, out = stage(
+        tmp_path, RUN_DIR=str(pair.parent.parent), OPENROUTER_API_KEY=f" {KEY}\n", ANTHROPIC_API_KEY=""
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert files == {
+        "init/steps.log": b"built\n",
+        "run/agent/task/.hidden": b"kept\n",
+        "run/agent/task/stdout.log": b"key [OPENROUTER_API_KEY] again [OPENROUTER_API_KEY]\n\xff",
+    }
+    assert out == f"dir={tmp_path}/tmp/pats-logs\n"
+    assert KEY in (pair / "stdout.log").read_text("latin-1")  # the run dir is not touched
+
+
+def test_logs_does_not_follow_a_linked_run_dir(tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "id_key").write_text("not for the artifact\n")
+    (tmp_path / "run").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    proc, files, out = stage(tmp_path, RUN_DIR=str(tmp_path / "run"))
+    assert (proc.returncode, files, out) == (0, {}, "")
+
+
+@pytest.mark.parametrize("run_dir", ["", "no/such/dir"])
+def test_logs_with_nothing_to_stage_exports_nothing(tmp_path, run_dir):
+    proc, files, out = stage(tmp_path, RUN_DIR=run_dir)
+    assert (proc.returncode, files, out) == (0, {}, "")
