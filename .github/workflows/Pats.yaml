@@ -1,7 +1,7 @@
 # reusable workflow: check out a repo at a ref, run pats on it, and comment
 # the report on the triggering pr (other events get the job summary only).
 #
-#   run     -- has the secrets, read-only token. uploads the json report.
+#   run     -- has the secrets, read-only token. uploads the json report, and the logs if asked.
 #   report  -- no secrets, write token. renders, comments, fails on a regression vs base.
 #
 # each job checks this repo out at the workflow's own commit (job.workflow_*)
@@ -56,6 +56,10 @@ on:
         description: environment the run job sits in, for its required reviewers and its secrets. default -- none
         type: string
         default: ""
+      upload-logs:
+        description: also upload each run job's logs as an artifact, `pats-logs-head` / `pats-logs-base` (with `-<name>` on a named call), kept 7 days -- per pair the transcript, step logs, egress log and collected outputs, plus the `pats init` logs. never on `pull_request_target`. default -- false
+        type: boolean
+        default: false
     secrets:
       # pass only the ones your agents use. under an `environment`, its own
       # secret of the same name is used in place of the one passed.
@@ -130,6 +134,7 @@ jobs:
           run-args: ${{ inputs.run-args }}
           score-args: ${{ inputs.score-args }}
           artifact-name: pats-report-${{ matrix.target }}${{ env.SUFFIX }}
+          logs-artifact-name: ${{ inputs.upload-logs && format('pats-logs-{0}{1}', matrix.target, env.SUFFIX) || '' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
