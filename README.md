@@ -102,30 +102,16 @@ jobs:
 ## logs
 
 the json report says what a run scored, not why. with `upload-logs: true` each
-run job also uploads its logs, as `pats-logs-head` / `pats-logs-base` (with
-`-<name>` on a named call), kept for 7 days:
+run job also uploads `pats-logs-head` / `pats-logs-base` (with `-<name>` on a
+named call), kept 7 days: `run/` is the run dir (per pair the transcript, the
+step logs, `egress.log`, `metadata.json` and what `collect` kept), `init/` the
+`pats init` logs.
 
-- `run/` -- the run dir. per pair: the agent's transcript (`stdout.log`), the
-  step logs (`stage.log`, `collect.log`, ...), `egress.log`, `metadata.json`
-  and what `collect` kept for the scorers.
-- `init/` -- the `pats init` log of each sandbox the job made.
-
-things to know:
-
-- the logs are uploaded when pats fails too. a job whose `pats init` failed
-  has only `init/`, and one that never got to pats has none.
-- only regular files are copied. links and special files are left behind.
-- the value of each of the [credentials](#credentials) the run job holds is
-  replaced by its name wherever it is written in the copies
-  (`[OPENROUTER_API_KEY]`). only as written: an encoded value is not found.
-  whoever can read the repo's actions can download the artifact, so read it
-  as you would a public job log.
-- never on `pull_request_target`, through the workflow or the run action:
-  the logs of a fork's commit would be published from your repo.
-- pats treats its run-dir files as internal, so the layout follows the pats
-  version.
-- staging or uploading the logs never fails the job. a file that could not
-  be copied is a warning.
+- uploaded when pats fails too, and never able to fail the job.
+- regular files only. the value of each [credential](#credentials) is
+  replaced by its name where it is written as is. an encoded one is not found,
+  so read the artifact as you would a public job log.
+- never on `pull_request_target`.
 
 ## credentials
 
