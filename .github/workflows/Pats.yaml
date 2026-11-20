@@ -29,7 +29,7 @@ on:
         type: string
         default: latest/stable
       name:
-        description: names this call, for a workflow that calls this one more than once in a run (e.g. once per suite from a matrix). each named call keeps report artifacts and a pr comment of its own. letters, digits, `.`, `_` and `-`. default -- none
+        description: names this call, for a workflow that calls this one more than once in a run (e.g. once per suite from a matrix). each named call keeps report artifacts and a pr comment of its own. letters, digits, `.`, `_` and `-` only, anything else fails the call. default -- none
         type: string
         default: ""
       init-args:
@@ -105,6 +105,11 @@ jobs:
           ref: ${{ job.workflow_sha }}
           path: .pats-action
           persist-credentials: false
+
+      - name: Check name
+        env:
+          NAME: ${{ inputs.name }}
+        run: bash .pats-action/.github/scripts/name.sh
 
       - name: Check out target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
