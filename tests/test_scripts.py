@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import re
@@ -170,3 +171,150 @@ def test_pats_missing_suite_runs_without_skip(tmp_path):
     _, out, calls = run_pats(tmp_path, RUN_ARGS="-S new")
     assert "skipped=false" in out
     assert len(calls) == 3
+
+
+def test_pats_image_cache_dir_reaches_init_only(tmp_path):
+    _, out, calls = run_pats(tmp_path, INIT_ARGS="-S smoke", IMAGE_CACHE_DIR="/cache")
+    assert calls[0] == "init -S smoke --image-cache /cache"
+    assert "--image-cache" not in calls[1] and "--image-cache" not in calls[2]
+    assert "init-exit-code=0" in out
+
+
+def test_pats_no_image_cache_by_default(tmp_path):
+    _, _, calls = run_pats(tmp_path, INIT_ARGS="-S smoke")
+    assert calls[0] == "init -S smoke"
+
+
+# --- image-cache.sh -----------------------------------------------------------
+
+IMAGE_CACHE = ROOT / "actions" / "run" / "image-cache.sh"
+
+A1, A2, A3 = (f"pats-img-{c * 24}" for c in "abc")
+
+FAKE_IMAGE_PATS = """#!/usr/bin/env bash
+echo "${PATS_VERSION:-1.3.0 @ abc}"
+"""
+
+# `lxc image list` prints $IMAGES; `lxc image export <alias> <base>` writes
+# <base>.tar.zst and logs the alias to $EXPORTS.
+FAKE_LXC = """#!/usr/bin/env bash
+case "$2" in
+  list) [ -z "${LXC_DOWN:-}" ] || exit 1; printf '%s' "$IMAGES" ;;
+  export) echo "$3" >> "$EXPORTS"; touch "$4.tar.zst" ;;
+esac
+"""
+
+
+def image_cache(tmp_path, cmd, images=(), ok=True, **env):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name, text in (("pats", FAKE_IMAGE_PATS), ("lxc", FAKE_LXC)):
+        (bin_dir / name).write_text(text)
+        (bin_dir / name).chmod(0o755)
+    out, exports = tmp_path / "out", tmp_path / "exports"
+    out.write_text("")
+    exports.write_text("")
+    listing = json.dumps([{"aliases": [{"name": a} for a in names]} for names in images])
+    proc = subprocess.run(
+        ["bash", str(IMAGE_CACHE), cmd],
+        env={
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "HOME": str(tmp_path),
+            "GITHUB_OUTPUT": str(out),
+            "EXPORTS": str(exports),
+            "IMAGES": listing,
+            **env,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (proc.returncode == 0) == ok, proc.stderr
+    outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
+    return outputs, exports.read_text().split()
+
+
+def test_image_cache_prepare_makes_the_dir(tmp_path):
+    outputs, _ = image_cache(tmp_path, "prepare")
+    assert outputs["dir"] == str(tmp_path / "pats-image-cache")
+    assert (tmp_path / "pats-image-cache").is_dir()
+    assert re.fullmatch(r"pats-images-[0-9a-f]{12}-[0-9a-f]{12}-", outputs["prefix"])
+
+
+def test_image_cache_prefix_follows_version_and_init_args(tmp_path):
+    def prefix(**env):
+        return image_cache(tmp_path, "prepare", **env)[0]["prefix"]
+
+    base = prefix(INIT_ARGS="-S rock")
+    assert prefix(INIT_ARGS="-S rock") == base
+    assert prefix(INIT_ARGS="-S smoke") != base
+    assert prefix(INIT_ARGS="-S rock", PATS_VERSION="1.4.0 @ def") != base
+
+
+def export(tmp_path, images, **env):
+    cache = tmp_path / "cache"
+    cache.mkdir(exist_ok=True)
+    env = {"GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1", **env}
+    return image_cache(
+        tmp_path, "export", images, IMAGE_CACHE_DIR=str(cache), IMAGE_CACHE_PREFIX="p-", **env
+    )
+
+
+def test_image_cache_key_names_the_run(tmp_path):
+    outputs, _ = export(tmp_path, [[A1]], GITHUB_RUN_ID="42", GITHUB_RUN_ATTEMPT="3")
+    assert re.fullmatch(r"p-[0-9a-f]{12}-42-3", outputs["key"])
+
+
+def test_image_cache_set_seen_before_is_saved_again(tmp_path):
+    # a -> b -> a: the restore matches b, the newest, so a is saved under a new key.
+    a, _ = export(tmp_path, [[A1]], GITHUB_RUN_ID="1")
+    b, _ = export(tmp_path, [[A2]], GITHUB_RUN_ID="2", IMAGE_CACHE_MATCHED_KEY=a["key"])
+    again, _ = export(tmp_path, [[A1]], GITHUB_RUN_ID="3", IMAGE_CACHE_MATCHED_KEY=b["key"])
+    assert b["changed"] == again["changed"] == "true"
+    assert again["key"] != a["key"]
+
+
+def test_image_cache_failed_list_keeps_the_dir(tmp_path):
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / f"{A1}.tar.zst").touch()
+    outputs, _ = image_cache(
+        tmp_path, "export", [[A1]], ok=False, LXC_DOWN="1",
+        IMAGE_CACHE_DIR=str(tmp_path / "cache"), IMAGE_CACHE_PREFIX="p-",
+    )
+    assert outputs == {}
+    assert (tmp_path / "cache" / f"{A1}.tar.zst").exists()
+
+
+def test_image_cache_export_writes_new_images_only(tmp_path):
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / f"{A1}.tar.zst").touch()
+    outputs, exports = export(tmp_path, [[A1], [A2, "my-rock"], ["not-pats"]])
+    assert exports == [A2]
+    assert sorted(p.name for p in (tmp_path / "cache").iterdir()) == [f"{A1}.tar.zst", f"{A2}.tar.zst"]
+    assert outputs["changed"] == "true"
+
+
+def test_image_cache_export_drops_images_the_server_lacks(tmp_path):
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / f"{A3}.tar.zst").touch()
+    export(tmp_path, [[A1]])
+    assert [p.name for p in (tmp_path / "cache").iterdir()] == [f"{A1}.tar.zst"]
+
+
+def test_image_cache_key_is_the_image_set(tmp_path):
+    one, _ = export(tmp_path, [[A1], [A2]])
+    two, _ = export(tmp_path, [[A2], [A1]])
+    three, _ = export(tmp_path, [[A1]])
+    assert one["key"] == two["key"] != three["key"]
+    assert one["key"].startswith("p-")
+
+
+def test_image_cache_unchanged_set_is_not_saved(tmp_path):
+    first, _ = export(tmp_path, [[A1]])
+    again, _ = export(tmp_path, [[A1]], IMAGE_CACHE_MATCHED_KEY=first["key"])
+    assert again["changed"] == "false"
+
+
+def test_image_cache_nothing_to_save_without_images(tmp_path):
+    outputs, exports = export(tmp_path, [])
+    assert outputs["changed"] == "false" and exports == []
