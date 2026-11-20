@@ -99,6 +99,26 @@ jobs:
   score, so no regression check), and each suite is held to `max-regression` against its own base score.
 - under an `environment`, each call's run jobs wait for approval on their own.
 
+## lxd image cache
+
+a runner is a new lxd server every job, so `pats init` builds an lxd sandbox's
+images every time (minutes for a big one). `image-cache: true` keeps them in
+the actions cache instead:
+
+- before init, the newest cache for this pats version and `init-args` is
+  restored, and init takes from it every image whose key still matches
+  (`pats init --image-cache`). a stale image is rebuilt, never used.
+- after a successful init, the server's `pats-img-*` images are exported into
+  it, the ones it no longer has dropped, and the cache saved under a new key,
+  only when the set differs from the restored cache's. an export that fails
+  leaves a warning, not a failed run.
+- nothing is saved from `pull_request_target`: its code isn't reviewed, and a
+  cache it saved would be the base branch's.
+- only jobs with an lxd sandbox, and only container ones (pats' vm images
+  don't go through the directory). calls with the same `init-args` share a
+  cache; a big image counts against the repo's cache quota once per
+  `init-args`.
+
 ## credentials
 
 the workflow takes these secrets, all optional. pass only the ones your agents use:

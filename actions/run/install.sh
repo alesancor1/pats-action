@@ -5,6 +5,7 @@
 # - docker: always connected (the runner has it).
 # - lxd: only when a sandbox (agent or step) has `driver: lxd`, as
 #   `pats list sandboxes` resolves it. runs from the dir holding pats.yaml.
+# lxd=true|false goes to $GITHUB_OUTPUT.
 set -euo pipefail
 
 : "${PATS_CHANNEL:?}"
@@ -18,6 +19,7 @@ echo /snap/bin >> "$GITHUB_PATH"
 drivers="$(/snap/bin/pats list sandboxes 2>/dev/null | awk 'NR > 1 { print $3 }' | sort -u || true)"
 echo "sandbox drivers: ${drivers:-none}"
 if ! grep -qx lxd <<< "$drivers"; then
+  echo "lxd=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi
 
@@ -39,3 +41,4 @@ for br in 'patsbr+' patsup; do
   sudo iptables -I DOCKER-USER -o "$br" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 done
 sudo snap connect pats:lxd lxd:lxd
+echo "lxd=true" >> "$GITHUB_OUTPUT"

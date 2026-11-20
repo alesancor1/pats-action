@@ -44,6 +44,10 @@ on:
         description: extra args for `pats score`, e.g. "-S smoke" (-S suites, -s scorers)
         type: string
         default: ""
+      image-cache:
+        description: keep the lxd images `pats init` builds in the actions cache and take them from there on the next run, so a job with an lxd sandbox skips most of its init. scoped to the pats version and `init-args`. default -- off
+        type: boolean
+        default: false
       max-regression:
         description: on prs, fail when the score is more than this below the base branch's (e.g. "0.05"). default -- never
         type: string
@@ -129,6 +133,7 @@ jobs:
           init-args: ${{ inputs.init-args }}
           run-args: ${{ inputs.run-args }}
           score-args: ${{ inputs.score-args }}
+          image-cache: ${{ inputs.image-cache }}
           artifact-name: pats-report-${{ matrix.target }}${{ env.SUFFIX }}
           # a suite added by the pr isn't on the base branch yet
           skip-missing-suites: ${{ matrix.target == 'base' }}

@@ -9,10 +9,16 @@
 # config doesn't define (e.g. the base branch of a pr adding it) skips the
 # whole run: nothing is run, and skipped=true goes to $GITHUB_OUTPUT.
 #
+# with IMAGE_CACHE_DIR set, init takes the lxd images it would build from that
+# directory where it can (`pats init --image-cache`).
+#
 # INIT_ARGS / RUN_ARGS / SCORE_ARGS are split on whitespace (no quoting).
 set -uo pipefail
 
 read -ra init_args <<< "${INIT_ARGS:-}"
+if [[ -n "${IMAGE_CACHE_DIR:-}" ]]; then
+  init_args+=(--image-cache "$IMAGE_CACHE_DIR")
+fi
 read -ra run_args <<< "${RUN_ARGS:-}"
 read -ra score_args <<< "${SCORE_ARGS:-}"
 
@@ -52,6 +58,7 @@ fi
 
 pats init "${init_args[@]}"
 run_rc=$?
+init_rc=$run_rc
 if [[ "$run_rc" == 0 ]]; then
   pats run "${run_args[@]}"
   run_rc=$?
@@ -61,6 +68,7 @@ score_rc=$?
 
 {
   echo "skipped=false"
+  echo "init-exit-code=$init_rc"
   echo "run-exit-code=$run_rc"
   echo "score-exit-code=$score_rc"
 } >> "$GITHUB_OUTPUT"
