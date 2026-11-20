@@ -36,8 +36,12 @@ _prepare() {
 }
 
 # _aliases: the pats-img-* aliases on the server, one per line, sorted. a failed
-# list fails the export before it touches the directory.
+# list fails the export before it touches the directory. no pats project: init
+# made no lxd sandbox, so no images.
 _aliases() {
+  local projects
+  projects="$(lxc project list --format json)" || return 1
+  jq -e 'any(.[]; .name == "pats")' <<< "$projects" > /dev/null || return 0
   lxc image list --project pats --format json |
     jq -r '.[].aliases[]?.name' | { grep -E "$ALIAS_RE" || true; } | sort -u
 }

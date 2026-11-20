@@ -195,14 +195,18 @@ FAKE_IMAGE_PATS = """#!/usr/bin/env bash
 echo "${PATS_VERSION:-1.3.0 @ abc}"
 """
 
-# `lxc image list` prints $IMAGES; `lxc image export <alias> <base>` writes
-# <base>.tar.zst and logs the alias to $EXPORTS.
+# `lxc project list` prints $PROJECTS, `lxc image list` $IMAGES; `lxc image
+# export <alias> <base>` writes <base>.tar.zst and logs the alias to $EXPORTS.
+# LXC_DOWN fails every call.
 FAKE_LXC = """#!/usr/bin/env bash
-case "$2" in
-  list) [ -z "${LXC_DOWN:-}" ] || exit 1; printf '%s' "$IMAGES" ;;
-  export) echo "$3" >> "$EXPORTS"; touch "$4.tar.zst" ;;
+[ -z "${LXC_DOWN:-}" ] || exit 1
+case "$1 $2" in
+  "project list") printf '%s' "$PROJECTS" ;;
+  "image list") printf '%s' "$IMAGES" ;;
+  "image export") echo "$3" >> "$EXPORTS"; touch "$4.tar.zst" ;;
 esac
 """
+PATS_PROJECT = json.dumps([{"name": "default"}, {"name": "pats"}])
 
 
 def image_cache(tmp_path, cmd, images=(), ok=True, **env):
@@ -223,6 +227,7 @@ def image_cache(tmp_path, cmd, images=(), ok=True, **env):
             "GITHUB_OUTPUT": str(out),
             "EXPORTS": str(exports),
             "IMAGES": listing,
+            "PROJECTS": PATS_PROJECT,
             **env,
         },
         capture_output=True,
@@ -272,6 +277,12 @@ def test_image_cache_set_seen_before_is_saved_again(tmp_path):
     again, _ = export(tmp_path, [[A1]], GITHUB_RUN_ID="3", IMAGE_CACHE_MATCHED_KEY=b["key"])
     assert b["changed"] == again["changed"] == "true"
     assert again["key"] != a["key"]
+
+
+def test_image_cache_no_pats_project_saves_nothing(tmp_path):
+    # an init that made only docker sandboxes leaves lxd without a pats project.
+    outputs, exports = export(tmp_path, [[A1]], PROJECTS=json.dumps([{"name": "default"}]))
+    assert outputs["changed"] == "false" and exports == []
 
 
 def test_image_cache_failed_list_keeps_the_dir(tmp_path):
