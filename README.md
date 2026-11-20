@@ -56,10 +56,10 @@ base score, the check is skipped with a warning.
 with `fail-under` set, the run fails whenever the overall score is below it
 (e.g. `0.8`), on any event. a missing score also fails.
 
-the workflow checks itself out at the pinned commit (via `job.workflow_repository`
-/ `job.workflow_sha`) and uses its actions by path (`./.pats-action/actions/...`).
-the actions therefore always match the workflow version you pinned, with no
-separate tag to keep in sync.
+the workflow uses its actions as `$/actions/...`, which runs them at its own
+commit, and checks itself out at that commit for its scripts (via
+`job.workflow_repository` / `job.workflow_sha`). both therefore always match
+the workflow version you pinned, with no separate tag to keep in sync.
 
 ## one job per suite
 
@@ -203,8 +203,11 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
 - **fork prs** get no secrets on `pull_request`. see [fork prs](#fork-prs), and
   don't run `pull_request_target` on a fork's head without an environment that
   has required reviewers: the fork's config and scripts get your keys.
-- all third-party actions are pinned to a commit sha (version in a trailing comment).
-- `job.workflow_*` isn't available on GitHub Enterprise Server.
+- every third-party action is locked to a commit in
+  [`actions.lock`](.github/workflows/actions.lock)
+  ([docs](https://gh.io/actions-lockfile)). the lockfile travels with
+  `Pats.yaml`: a caller runs the locked commits with no lockfile of its own.
+- `job.workflow_*` and `$/` aren't available on GitHub Enterprise Server.
 - needs a runner with docker and snapd. any `ubuntu-*` hosted runner works.
 - pats is installed as a **strict snap** (`sudo snap install pats --channel=...`
   plus `sudo snap connect pats:docker`), which means:
@@ -226,4 +229,5 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
 ```sh
 python -m pytest -q tests   # renderer and script tests
 bash .github/scripts/shellcheck.sh  # all scripts
+gh actions-lock             # after changing a `uses:` line. commit actions.lock with it
 ```
