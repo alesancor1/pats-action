@@ -3,7 +3,8 @@
 # the base branch's, and a link to the workflow run summary. a hidden marker
 # keyed by $KEY finds the previous comment, which is updated in place.
 #
-# env: GH_TOKEN, KEY, PR, BASE_REF, OVERALL and BASE_OVERALL (may be empty).
+# env: GH_TOKEN, KEY, PR, BASE_REF, OVERALL and BASE_OVERALL (may be empty),
+# NAME (may be empty: what the heading says was evaluated).
 set -euo pipefail
 
 : "${GH_TOKEN:?}" "${KEY:?}" "${PR:?not a pull_request event}"
@@ -51,6 +52,12 @@ body="$(
   echo
   echo "📊 **[View the full report]($run_url)**: per-task scores, scorer breakdown and run stats."
 )"
+# a named report says so in its heading.
+name="${NAME:-}"
+name="${name//[^A-Za-z0-9._-]/_}"
+if [[ -n "$name" ]]; then
+  body="${body/ pats evaluation/ pats evaluation: \`$name\`}"
+fi
 marker="$(head -n1 <<< "$body")"
 payload="$(jq -Rs '{body: .}' <<< "$body")"
 

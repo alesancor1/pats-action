@@ -28,6 +28,10 @@ on:
         description: snap channel to install pats from (e.g. latest/candidate, latest/stable)
         type: string
         default: latest/stable
+      name:
+        description: names this call, for a workflow that calls this one more than once in a run (e.g. once per suite from a matrix). each named call keeps report artifacts and a pr comment of its own. letters, digits, `.`, `_` and `-`. default -- none
+        type: string
+        default: ""
       init-args:
         description: extra args for `pats init`, e.g. "-S smoke" (only the sandboxes that suite uses). default -- every sandbox in the config
         type: string
@@ -75,6 +79,10 @@ on:
         description: overall score
         value: ${{ jobs.report.outputs.overall }}
 
+env:
+  # "-<name>" on a named call: two calls in one run can't share an artifact name.
+  SUFFIX: ${{ inputs.name && format('-{0}', inputs.name) || '' }}
+
 jobs:
   # on prs, also run pats on the base branch head so the comment can compare.
   # the base run may fail without blocking the report.
@@ -116,7 +124,7 @@ jobs:
           init-args: ${{ inputs.init-args }}
           run-args: ${{ inputs.run-args }}
           score-args: ${{ inputs.score-args }}
-          artifact-name: pats-report-${{ matrix.target }}
+          artifact-name: pats-report-${{ matrix.target }}${{ env.SUFFIX }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -144,14 +152,14 @@ jobs:
         id: report
         uses: ./.pats-action/actions/report
         with:
-          artifact-name: pats-report-head
+          artifact-name: pats-report-head${{ env.SUFFIX }}
 
       - name: Download base report
         if: startsWith(github.event_name, 'pull_request') && inputs.repository == ''
         continue-on-error: true   # base run failed or was skipped -> n/a
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: pats-report-base
+          name: pats-report-base${{ env.SUFFIX }}
           path: base
 
       - name: Read base score
@@ -165,7 +173,8 @@ jobs:
         with:
           overall: ${{ steps.report.outputs.overall }}
           base-overall: ${{ steps.base.outputs.overall }}
-          key: ${{ inputs.repository }}/${{ inputs.working-directory }}
+          key: ${{ inputs.repository }}/${{ inputs.working-directory }}${{ inputs.name && format('/{0}', inputs.name) || '' }}
+          name: ${{ inputs.name }}
 
       - name: Check for regression
         if: startsWith(github.event_name, 'pull_request')
