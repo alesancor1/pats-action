@@ -114,3 +114,59 @@ def test_name_rejected(name):
 
 def test_name_unset_is_an_unnamed_call():
     assert run(NAME).returncode == 0
+
+
+# --- pats.sh ------------------------------------------------------------------
+
+PATS = ROOT / "actions" / "run" / "pats.sh"
+
+FAKE_PATS = """#!/usr/bin/env bash
+if [[ "$1" == list ]]; then
+  echo "VECTOR  SUITE  AGENTS"
+  echo "suites  smoke  1"
+  echo "suites  slow   1"
+  exit 0
+fi
+echo "$*" >> "$CALLS"
+"""
+
+
+def run_pats(tmp_path, **env):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "pats"
+    fake.write_text(FAKE_PATS)
+    fake.chmod(0o755)
+    out, calls = tmp_path / "out", tmp_path / "calls"
+    out.touch()
+    calls.touch()
+    proc = subprocess.run(
+        ["bash", str(PATS)],
+        env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(out), "CALLS": str(calls), **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc, out.read_text().splitlines(), calls.read_text().splitlines()
+
+
+@pytest.mark.parametrize("args", ["-S smoke -j -1", "--suite=slow", "-Ssmoke,slow", ""])
+def test_pats_known_suites_run(tmp_path, args):
+    _, out, calls = run_pats(tmp_path, SKIP_MISSING_SUITES="true", RUN_ARGS=args)
+    assert "skipped=false" in out
+    assert [c.split()[0] for c in calls] == ["init", "run", "score"]
+
+
+@pytest.mark.parametrize("args", ["-S new -j -1", "--suite=new", "-S smoke,new"])
+def test_pats_missing_suite_skips(tmp_path, args):
+    proc, out, calls = run_pats(tmp_path, SKIP_MISSING_SUITES="true", RUN_ARGS=args)
+    assert out == ["skipped=true"]
+    assert calls == []
+    assert "::warning::" in proc.stdout and "new" in proc.stdout
+
+
+def test_pats_missing_suite_runs_without_skip(tmp_path):
+    _, out, calls = run_pats(tmp_path, RUN_ARGS="-S new")
+    assert "skipped=false" in out
+    assert len(calls) == 3

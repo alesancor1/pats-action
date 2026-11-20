@@ -5,7 +5,7 @@ pats is untouched; this repo only installs and drives it.
 
 | piece | inputs | what it does |
 |---|---|---|
-| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `init-args`, `run-args`, `score-args`, `artifact-name` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
+| [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `init-args`, `run-args`, `score-args`, `artifact-name`, `skip-missing-suites` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
 | [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `name`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
 | [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `name`, `init-args`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
@@ -95,8 +95,8 @@ jobs:
   the call before pats runs.
 - `init-args` keeps a job to the sandboxes its suite uses. without it every
   job makes every sandbox in the config.
-- a suite the base branch doesn't have yet fails only its own base run, and
-  each suite is held to `max-regression` against its own base score.
+- a suite the base branch doesn't have yet skips its base run (no base
+  score, so no regression check), and each suite is held to `max-regression` against its own base score.
 - under an `environment`, each call's run jobs wait for approval on their own.
 
 ## credentials

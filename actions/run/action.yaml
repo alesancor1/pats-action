@@ -30,8 +30,14 @@ inputs:
   artifact-name:
     description: name of the uploaded json report artifact
     default: pats-report
+  skip-missing-suites:
+    description: when a suite selected with -S / --suite isn't in the config, skip the run (no report, no failure) instead of failing, e.g. on the base branch of a pr that adds the suite
+    default: "false"
 
 outputs:
+  skipped:
+    description: "\"true\" when the run was skipped for a missing suite"
+    value: ${{ steps.pats.outputs.skipped }}
   report:
     description: absolute path of the json report
     value: ${{ steps.collect.outputs.report }}
@@ -60,11 +66,12 @@ runs:
         INIT_ARGS: ${{ inputs.init-args }}
         RUN_ARGS: ${{ inputs.run-args }}
         SCORE_ARGS: ${{ inputs.score-args }}
+        SKIP_MISSING_SUITES: ${{ inputs.skip-missing-suites }}
       run: bash "$GITHUB_ACTION_PATH/pats.sh"
 
     - name: Collect json report
       id: collect
-      if: always()
+      if: always() && steps.pats.outputs.skipped != 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -80,6 +87,7 @@ runs:
         path: ${{ steps.collect.outputs.report }}
 
     - name: Fail on pats errors
+      if: steps.pats.outputs.skipped != 'true'
       shell: bash
       env:
         RUN_RC: ${{ steps.pats.outputs.run-exit-code }}
