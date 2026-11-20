@@ -83,9 +83,8 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: ${{ steps.collect.outputs.report }}
 
-    # the logs are for reading a run afterwards: neither step decides the job.
-    # not on pull_request_target: the logs of a fork's commit would be
-    # published from this repo.
+    # neither step decides the job. not on pull_request_target: the logs of a
+    # fork's commit would be published from this repo.
     - name: Stage logs
       id: logs
       if: always() && inputs.logs-artifact-name != '' && github.event_name != 'pull_request_target'
@@ -94,9 +93,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         RUN_DIR: ${{ steps.collect.outputs.run-dir }}
-      run: >-
-        python3 "$GITHUB_ACTION_PATH/logs.py" -o "$RUNNER_TEMP/pats-logs"
-        --run-dir "$RUN_DIR" --init-dir .pats/init
+      run: bash "$GITHUB_ACTION_PATH/logs.sh"
 
     - name: Upload logs
       if: always() && steps.logs.outputs.dir != ''
