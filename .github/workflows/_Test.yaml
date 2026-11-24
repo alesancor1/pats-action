@@ -40,3 +40,5 @@ jobs:
           persist-credentials: false
       - run: gh extension install github/gh-actions-lock --pin v0.5.1
       - run: gh actions-lock --verify
+      # a plain run writes what it would change, so any diff is a stale lockfile.
+      - run: gh actions-lock && git diff --exit-code
