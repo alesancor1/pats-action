@@ -231,5 +231,5 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
 ```sh
 python -m pytest -q tests   # renderer and script tests
 bash .github/scripts/shellcheck.sh  # all scripts
-gh actions-lock             # after changing a `uses:` line. commit actions.lock with it
+gh actions-lock             # v0.5 or later, after changing a `uses:` line. commit actions.lock with it
 ```
