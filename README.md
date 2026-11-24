@@ -207,6 +207,8 @@ pats' `docs/spec/report.md`); pats treats its run-dir files (`scores.json`,
   [`actions.lock`](.github/workflows/actions.lock)
   ([docs](https://gh.io/actions-lockfile)). the lockfile travels with
   `Pats.yaml`: a caller runs the locked commits with no lockfile of its own.
+  the actions keep a commit sha on their own `uses:` lines, since no lockfile
+  reaches a repo that uses them directly.
 - `job.workflow_*` and `$/` aren't available on GitHub Enterprise Server.
 - needs a runner with docker and snapd. any `ubuntu-*` hosted runner works.
 - pats is installed as a **strict snap** (`sudo snap install pats --channel=...`
