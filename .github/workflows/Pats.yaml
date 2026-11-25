@@ -4,8 +4,9 @@
 #   run     -- has the secrets, read-only token. uploads the json report.
 #   report  -- no secrets, write token. renders, comments, fails on a regression vs base.
 #
-# each job checks this repo out at the workflow's own commit (job.workflow_*)
-# into .pats-action, so the actions are used by path and always match the
+# the actions are used as `$/actions/...`, which runs them at the workflow's
+# own commit. each job also checks this repo out at that commit
+# (job.workflow_*) into .pats-action, for the scripts. both always match the
 # version of the workflow the caller pinned.
 name: Pats
 
@@ -99,7 +100,7 @@ jobs:
       contents: read
     steps:
       - name: Check out pats-action
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
@@ -112,7 +113,7 @@ jobs:
         run: bash .pats-action/.github/scripts/name.sh
 
       - name: Check out target
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ matrix.target == 'base' && github.event.pull_request.base.ref || inputs.ref || github.event.pull_request.head.sha || github.sha }}
@@ -122,7 +123,7 @@ jobs:
           allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' && inputs.environment != '' }}
 
       - name: Run pats
-        uses: ./.pats-action/actions/run
+        uses: $/actions/run
         with:
           pats-channel: ${{ inputs.pats-channel }}
           working-directory: target/${{ inputs.working-directory }}
@@ -148,7 +149,7 @@ jobs:
       overall: ${{ steps.report.outputs.overall }}
     steps:
       - name: Check out pats-action
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
@@ -157,14 +158,14 @@ jobs:
 
       - name: Render report
         id: report
-        uses: ./.pats-action/actions/report
+        uses: $/actions/report
         with:
           artifact-name: pats-report-head${{ env.SUFFIX }}
 
       - name: Download base report
         if: startsWith(github.event_name, 'pull_request') && inputs.repository == ''
         continue-on-error: true   # base run failed or was skipped -> n/a
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        uses: actions/download-artifact@v8.0.2
         with:
           name: pats-report-base${{ env.SUFFIX }}
           path: base
@@ -176,7 +177,7 @@ jobs:
 
       - name: Comment
         if: startsWith(github.event_name, 'pull_request')
-        uses: ./.pats-action/actions/comment
+        uses: $/actions/comment
         with:
           overall: ${{ steps.report.outputs.overall }}
           base-overall: ${{ steps.base.outputs.overall }}
