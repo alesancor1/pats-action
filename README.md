@@ -7,7 +7,7 @@ pats is untouched; this repo only installs and drives it.
 |---|---|---|
 | [`actions/run`](actions/run/action.yaml) | `pats-channel`, `working-directory`, `init-args`, `run-args`, `score-args`, `artifact-name`, `skip-missing-suites` | installs the pats snap, runs `pats init` + `pats run` + `pats score`, uploads a **json report** artifact |
 | [`actions/report`](actions/report/action.yaml) | `artifact-name` | renders the json as markdown, writes the job summary |
-| [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `name`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
+| [`actions/comment`](actions/comment/action.yaml) | `overall`, `base-overall`, `key`, `name`, `run-failed`, `github-token` | sticky pr comment with the overall score vs the base branch's + a link to the run summary, updated on re-runs |
 | [`Pats.yaml`](.github/workflows/Pats.yaml) | `repository`, `ref`, `working-directory`, `pats-channel`, `name`, `init-args`, `run-args`, `score-args`, `max-regression`, `fail-under`, `environment` | checkout -> run (head + base on prs) -> report -> comment -> regression check |
 
 the logic lives in scripts next to each action (`actions/*/*.sh`,
@@ -19,6 +19,11 @@ the logic lives in scripts next to each action (`actions/*/*.sh`,
 # .github/workflows/pats.yaml in the repo holding pats.yaml
 name: pats
 on: [pull_request, workflow_dispatch]
+
+# a new push ends the run of the commit before it
+concurrency:
+  group: pats-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   pats:
@@ -41,8 +46,14 @@ to test another repo, set `repository` (+ `ref`), and pass `PATS_CHECKOUT_TOKEN`
 if that repo is private. the full report goes to the run summary; the pr comment
 (on the caller's pr) only holds the overall score and a link to it. on non-pr events
 (e.g. `workflow_dispatch`) there's no comment, only the job summary. if pats
-fails, the workflow stops after `run`. there's no comment then either, but the
-json report is still uploaded as the `pats-report-head` artifact.
+fails, the report job still runs: it renders what the run left, marks the pr
+comment `run failed`, and then fails. the json report is still uploaded as the
+`pats-report-head` artifact.
+
+the comment is one per pr (and per `name`), updated in place, and belongs to
+the newest commit. a run of a commit the pr has since moved on from, finishing
+late or re-run by hand, leaves it alone. keep the `concurrency` block: without
+it two runs of one pr can each post a comment before either sees the other's.
 
 on prs, the workflow also runs pats on the head of the base branch (in parallel)
 so the comment can show both scores and the change. this doubles the agent cost

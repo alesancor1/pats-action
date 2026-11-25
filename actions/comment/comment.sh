@@ -7,7 +7,9 @@
 # nothing; GH_TOKEN and PR are then not needed.
 #
 # env: GH_TOKEN, KEY, PR, BASE_REF, OVERALL and BASE_OVERALL (may be empty),
-# NAME (may be empty: what the comment says was evaluated).
+# NAME (may be empty: what the comment says was evaluated), RUN_FAILED (`true`
+# when the pats run failed), HEAD_SHA (may be empty: the commit this run is
+# of, see below).
 set -euo pipefail
 
 dry=0
@@ -36,9 +38,12 @@ fmt() {
   }'
 }
 
-# the change against the base score. empty without both scores.
+# the change against the base score, empty without both scores. a failed run
+# says so instead: what it scored, if anything, is not a result to compare.
 delta=""
-if [[ -n "${OVERALL:-}" && -n "${BASE_OVERALL:-}" ]]; then
+if [[ "${RUN_FAILED:-}" == true ]]; then
+  delta=" &middot; :x: **run failed**"
+elif [[ -n "${OVERALL:-}" && -n "${BASE_OVERALL:-}" ]]; then
   d="$(awk -v h="$OVERALL" -v b="$BASE_OVERALL" 'BEGIN { printf "%+.2f", h - b }')"
   case "$d" in
     +0.00|-0.00) delta="no change" ;;
@@ -67,6 +72,18 @@ payload="$(jq -Rs '{body: .}' <<< "$body")"
 
 id="$(gh api --paginate "repos/$repo/issues/$PR/comments" \
   --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -n1)"
+
+# a run of a commit that is no longer the pr's head leaves the comment alone.
+# finishing late, or re-run by hand, it would put an older score over the one
+# of a newer run, or post a second comment next to it.
+if [[ -n "${HEAD_SHA:-}" ]]; then
+  if ! head="$(gh api "repos/$repo/pulls/$PR" --jq .head.sha)" || [[ -z "$head" ]]; then
+    echo "::warning::could not read the pr head: commenting without that check"
+  elif [[ "$head" != "$HEAD_SHA" ]]; then
+    echo "::notice::the pr head moved from ${HEAD_SHA:0:7} to ${head:0:7}: comment left alone"
+    exit 0
+  fi
+fi
 if [[ -n "$id" ]]; then
   gh api -X PATCH "repos/$repo/issues/comments/$id" --input - --jq .html_url <<< "$payload"
 else
