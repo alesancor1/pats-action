@@ -26,26 +26,38 @@ run_url="$GITHUB_SERVER_URL/$repo/actions/runs/$GITHUB_RUN_ID"
 base="${BASE_REF:-base}"
 base="${base//[^A-Za-z0-9._\/-]/_}"  # shown in a code span
 
-# "0.76", or "n/a" when empty.
+# ":green_circle: 0.76", same thresholds as the full report, or "n/a" when
+# empty. $2 goes on both sides of the number.
 fmt() {
   if [[ -z "$1" ]]; then echo "n/a"; return; fi
-  awk -v s="$1" 'BEGIN { printf "%.2f", s }'
+  awk -v s="$1" -v w="${2:-}" 'BEGIN {
+    colour = s >= 0.8 ? "green" : s >= 0.5 ? "yellow" : "red"
+    printf ":%s_circle: %s%.2f%s", colour, w, s, w
+  }'
 }
 
-# " (+0.06)": the change against the base score. empty without both scores.
+# the change against the base score. empty without both scores.
 delta=""
 if [[ -n "${OVERALL:-}" && -n "${BASE_OVERALL:-}" ]]; then
-  delta="$(awk -v h="$OVERALL" -v b="$BASE_OVERALL" 'BEGIN { printf " (%+.2f)", h - b }')"
-  delta="${delta/-0.00/+0.00}"
+  d="$(awk -v h="$OVERALL" -v b="$BASE_OVERALL" 'BEGIN { printf "%+.2f", h - b }')"
+  case "$d" in
+    +0.00|-0.00) delta="no change" ;;
+    +*)          delta=":chart_with_upwards_trend: **$d**" ;;
+    *)           delta=":chart_with_downwards_trend: **$d**" ;;
+  esac
+  delta=" &middot; $delta"
 fi
 
 key="${KEY//[^A-Za-z0-9._\/-]/_}"  # ends up in a jq string literal below
 name="${NAME:-}"
 name="${name//[^A-Za-z0-9._-]/_}"
-title="pats evaluation${name:+: \`$name\`}"
-# the marker, then one line: base score first, then the pr's.
+# the marker first. the scores read base to pr.
 body="<!-- pats-comment:$key -->
-**$title** &middot; \`$base\` $(fmt "${BASE_OVERALL:-}") &rarr; PR **$(fmt "${OVERALL:-}")**$delta &middot; [full report]($run_url)"
+### pats evaluation${name:+: \`$name\`}
+
+\`$base\` $(fmt "${BASE_OVERALL:-}") &rarr; PR $(fmt "${OVERALL:-}" "**")$delta
+
+[full report]($run_url): per-task scores, scorer breakdown and run stats."
 if [[ "$dry" == 1 ]]; then
   printf '%s\n' "$body"
   exit 0
