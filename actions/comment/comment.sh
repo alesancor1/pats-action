@@ -7,7 +7,7 @@
 # nothing; GH_TOKEN and PR are then not needed.
 #
 # env: GH_TOKEN, KEY, PR, BASE_REF, OVERALL and BASE_OVERALL (may be empty),
-# NAME (may be empty: what the heading says was evaluated).
+# NAME (may be empty: what the comment says was evaluated).
 set -euo pipefail
 
 dry=0
@@ -24,53 +24,28 @@ fi
 repo="$GITHUB_REPOSITORY"
 run_url="$GITHUB_SERVER_URL/$repo/actions/runs/$GITHUB_RUN_ID"
 base="${BASE_REF:-base}"
+base="${base//[^A-Za-z0-9._\/-]/_}"  # shown in a code span
 
-# "<icon> 0.76", same thresholds as the full report; "n/a" when empty.
-# literal emoji, not :shortcodes: -- those don't render inside html blocks.
+# "0.76", or "n/a" when empty.
 fmt() {
   if [[ -z "$1" ]]; then echo "n/a"; return; fi
-  awk -v s="$1" 'BEGIN {
-    icon = s >= 0.8 ? "🟢" : s >= 0.5 ? "🟡" : "🔴"
-    printf "%s %.2f", icon, s
-  }'
+  awk -v s="$1" 'BEGIN { printf "%.2f", s }'
 }
 
-# change cell + a one-line verdict; both empty without a base score.
-delta="" verdict=""
+# " (+0.06)": the change against the base score. empty without both scores.
+delta=""
 if [[ -n "${OVERALL:-}" && -n "${BASE_OVERALL:-}" ]]; then
-  d="$(awk -v h="$OVERALL" -v b="$BASE_OVERALL" 'BEGIN { printf "%+.2f", h - b }')"
-  case "$d" in
-    +0.00|-0.00) delta="➖ $d" verdict="➖ **No change** vs \`$base\`" ;;
-    +*)          delta="📈 $d" verdict="📈 **Improved** vs \`$base\`" ;;
-    *)           delta="📉 $d" verdict="📉 **Regressed** vs \`$base\`" ;;
-  esac
+  delta="$(awk -v h="$OVERALL" -v b="$BASE_OVERALL" 'BEGIN { printf " (%+.2f)", h - b }')"
+  delta="${delta/-0.00/+0.00}"
 fi
 
-cell() { printf '<td align="center"><h2>%s</h2></td>' "$1"; }
-
-body="$(
-  key="${KEY//[^A-Za-z0-9._\/-]/_}"  # ends up in a jq string literal below
-  echo "<!-- pats-comment:$key -->"
-  echo "## 🧪 pats evaluation"
-  echo
-  if [[ -n "$verdict" ]]; then echo "$verdict"; echo; fi
-  echo '<table>'
-  printf '<tr><th>This PR</th><th>Base <code>%s</code></th>' "$base"
-  if [[ -n "$delta" ]]; then printf '<th>Change</th>'; fi
-  echo '</tr>'
-  printf '<tr>%s%s' "$(cell "$(fmt "${OVERALL:-}")")" "$(cell "$(fmt "${BASE_OVERALL:-}")")"
-  if [[ -n "$delta" ]]; then cell "$delta"; fi
-  echo '</tr>'
-  echo '</table>'
-  echo
-  echo "📊 **[View the full report]($run_url)**: per-task scores, scorer breakdown and run stats."
-)"
-# a named report says so in its heading.
+key="${KEY//[^A-Za-z0-9._\/-]/_}"  # ends up in a jq string literal below
 name="${NAME:-}"
 name="${name//[^A-Za-z0-9._-]/_}"
-if [[ -n "$name" ]]; then
-  body="${body/ pats evaluation/ pats evaluation: \`$name\`}"
-fi
+title="pats evaluation${name:+: \`$name\`}"
+# the marker, then one line: base score first, then the pr's.
+body="<!-- pats-comment:$key -->
+**$title** &middot; \`$base\` $(fmt "${BASE_OVERALL:-}") &rarr; PR **$(fmt "${OVERALL:-}")**$delta &middot; [full report]($run_url)"
 if [[ "$dry" == 1 ]]; then
   printf '%s\n' "$body"
   exit 0
