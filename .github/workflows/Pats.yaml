@@ -3,6 +3,7 @@
 #
 #   run     -- has the secrets, read-only token. uploads the json report.
 #   report  -- no secrets, write token. renders, comments, fails on a regression vs base.
+#              runs after a failed run too, and then fails once it has commented.
 #
 # the actions are used as `$/actions/...`, which runs them at the workflow's
 # own commit. each job also checks this repo out at that commit
@@ -139,14 +140,18 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
+  # also after a failed run: the summary shows what there is, and the comment
+  # stops showing an older run's score.
   report:
     needs: run
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     permissions:
       contents: read
       pull-requests: write
     outputs:
-      overall: ${{ steps.report.outputs.overall }}
+      # none from a failed run: what it scored is not a result
+      overall: ${{ needs.run.result == 'success' && steps.report.outputs.overall || '' }}
     steps:
       - name: Check out pats-action
         uses: actions/checkout@v7.0.1
@@ -158,6 +163,7 @@ jobs:
 
       - name: Render report
         id: report
+        continue-on-error: ${{ needs.run.result != 'success' }}   # it may have left no report
         uses: $/actions/report
         with:
           artifact-name: pats-report-head${{ env.SUFFIX }}
@@ -183,6 +189,13 @@ jobs:
           base-overall: ${{ steps.base.outputs.overall }}
           key: ${{ inputs.repository }}/${{ inputs.working-directory }}${{ inputs.name && format('/{0}', inputs.name) || '' }}
           name: ${{ inputs.name }}
+          run-failed: ${{ needs.run.result != 'success' }}
+
+      - name: Fail after a failed run
+        if: needs.run.result != 'success'
+        run: |
+          echo "::error::the pats run failed"
+          exit 1
 
       - name: Check for regression
         if: startsWith(github.event_name, 'pull_request')
