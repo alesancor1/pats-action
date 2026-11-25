@@ -39,34 +39,62 @@ def body(**env):
 # --- comment.sh ---------------------------------------------------------------
 
 
-def test_comment_unnamed_heading():
+def test_comment_layout():
     lines = body()
     assert lines[0] == "<!-- pats-comment:acme/skills/tests -->"
-    assert lines[1].startswith("## ") and lines[1].endswith(" pats evaluation")
+    assert lines[1] == "### pats evaluation"
+    assert lines[3].startswith("`main` ")
+    assert lines[5].startswith("[full report](https://github.com/acme/skills/actions/runs/1)")
+    assert [i for i, line in enumerate(lines) if not line] == [2, 4] and len(lines) == 6
+    assert "\n".join(lines).isascii()
+
+
+def test_comment_shows_the_base_score_first():
+    assert body()[3] == (
+        "`main` :yellow_circle: 0.70 &rarr; PR :green_circle: **0.80**"
+        " &middot; :chart_with_upwards_trend: **+0.10**"
+    )
+
+
+@pytest.mark.parametrize(
+    ("overall", "base", "shown"),
+    [
+        ("0.60", "0.70", "PR :yellow_circle: **0.60** &middot; :chart_with_downwards_trend: **-0.10**"),
+        ("0.699", "0.70", "PR :yellow_circle: **0.70** &middot; no change"),
+        ("0.80", "", "`main` n/a &rarr; PR :green_circle: **0.80**"),
+        ("", "0.70", "`main` :yellow_circle: 0.70 &rarr; PR n/a"),
+        ("0.79", "0.49", "`main` :red_circle: 0.49 &rarr; PR :yellow_circle: **0.79** "),
+        ("0.5", "1", "`main` :green_circle: 1.00 &rarr; PR :yellow_circle: **0.50** "),
+    ],
+)
+def test_comment_scores(overall, base, shown):
+    line = body(OVERALL=overall, BASE_OVERALL=base)[3]
+    assert shown in line
+    assert ("trend" in line or "no change" in line) == bool(overall and base)
 
 
 def test_comment_named_heading():
-    lines = body(NAME="ci-rock-crafter")
-    assert lines[1].endswith(" pats evaluation: `ci-rock-crafter`")
-
-
-def test_comment_name_changes_the_heading_only():
-    # the marker is what finds the sticky comment: the name must not move it
-    plain, named = body(), body(NAME="smoke")
-    assert [i for i, (a, b) in enumerate(zip(plain, named)) if a != b] == [1]
-    assert len(plain) == len(named)
+    assert body(NAME="ci-rock-crafter")[1] == "### pats evaluation: `ci-rock-crafter`"
 
 
 @pytest.mark.parametrize(
     "name",
-    ["a`b", "<script>alert(1)</script>", "a\nb", "a & b", "## heading", "a|b"],
+    ["a`b", "<script>alert(1)</script>", "a\nb", "a & b", "## heading", "a|b", "a** b"],
 )
 def test_comment_hostile_name_stays_one_code_span(name):
+    # the marker is what finds the sticky comment: the name must not move it,
+    # nor change any line but the heading
     plain, named = body(), body(NAME=name)
+    assert [i for i, (a, b) in enumerate(zip(plain, named)) if a != b] == [1]
     assert len(named) == len(plain)
-    shown = named[1].split(" pats evaluation: ", 1)[1]
+    shown = named[1].split("### pats evaluation: ", 1)[1]
     assert shown.startswith("`") and shown.endswith("`")
     assert set(shown[1:-1]) <= set("abcdefghijklmnopqrstuvwxyz1()_.-")
+
+
+def test_comment_hostile_base_ref_stays_one_code_span():
+    line = body(BASE_REF="rel/1.x`[l](https://example.com)`")[3]
+    assert line.startswith("`rel/1.x__l__https_//example.com__` :yellow_circle: 0.70 &rarr; ")
 
 
 def test_comment_key_names_the_marker():
