@@ -118,6 +118,81 @@ def test_comment_unknown_argument():
     assert proc.stderr.startswith("usage: comment.sh")
 
 
+@pytest.mark.parametrize(("overall", "shown"), [("", "PR n/a"), ("0.41", "PR :red_circle: **0.41**")])
+def test_comment_failed_run_says_so_in_place_of_the_change(overall, shown):
+    line = body(RUN_FAILED="true", OVERALL=overall)[3]
+    assert line == f"`main` :yellow_circle: 0.70 &rarr; {shown} &middot; :x: **run failed**"
+
+
+def test_comment_run_that_did_not_fail_shows_the_change():
+    assert body(RUN_FAILED="false") == body()
+
+
+# a stand-in for `gh`: logs each call, answers the pr head and the id of the
+# comment found, swallows a write.
+GH = """#!/usr/bin/env bash
+echo "$*" >> "$GH_LOG"
+case "$*" in
+  *"/pulls/"*) [[ "$GH_HEAD" != fail ]] || exit 1; echo "$GH_HEAD" ;;
+  *--paginate*) printf '%s' "$GH_FOUND" ;;
+  *) cat > /dev/null; echo "https://github.com/acme/skills/pull/7#issuecomment-1" ;;
+esac
+"""
+
+
+def post(tmp_path, found="", head="aaaaaaa1", **env):
+    gh = tmp_path / "bin" / "gh"
+    gh.parent.mkdir()
+    gh.write_text(GH)
+    gh.chmod(0o755)
+    log = tmp_path / "gh.log"
+    log.touch()
+    proc = run(
+        COMMENT,
+        **{
+            **ENV,
+            "PATH": f"{gh.parent}{os.pathsep}{os.environ['PATH']}",
+            "GH_TOKEN": "t",
+            "PR": "7",
+            "GH_LOG": str(log),
+            "GH_FOUND": found,
+            "GH_HEAD": head,
+            **env,
+        },
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout, [call for call in log.read_text().splitlines() if "-X " in call]
+
+
+def test_comment_posts_when_there_is_none(tmp_path):
+    _, writes = post(tmp_path, HEAD_SHA="aaaaaaa1")
+    assert len(writes) == 1 and "-X POST repos/acme/skills/issues/7/comments " in writes[0]
+
+
+def test_comment_updates_the_one_found(tmp_path):
+    _, writes = post(tmp_path, found="42", HEAD_SHA="aaaaaaa1")
+    assert len(writes) == 1 and "-X PATCH repos/acme/skills/issues/comments/42 " in writes[0]
+
+
+@pytest.mark.parametrize("found", ["", "42"])
+def test_comment_of_a_commit_the_pr_moved_on_from_writes_nothing(tmp_path, found):
+    out, writes = post(tmp_path, found=found, head="bbbbbbb2", HEAD_SHA="aaaaaaa1")
+    assert writes == []
+    assert "::notice::the pr head moved from aaaaaaa to bbbbbbb" in out
+
+
+def test_comment_without_a_head_sha_is_not_held_back(tmp_path):
+    _, writes = post(tmp_path, head="bbbbbbb2")
+    assert len(writes) == 1
+
+
+@pytest.mark.parametrize("head", ["fail", ""])
+def test_comment_is_written_when_the_pr_head_cannot_be_read(tmp_path, head):
+    out, writes = post(tmp_path, head=head, HEAD_SHA="aaaaaaa1")
+    assert len(writes) == 1
+    assert "::warning::could not read the pr head" in out
+
+
 # --- name.sh ------------------------------------------------------------------
 
 
