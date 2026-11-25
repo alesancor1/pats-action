@@ -1,6 +1,7 @@
 # posts a sticky comment on the triggering pr with the overall score (compared
 # against the base branch's) and a link to the run summary. re-runs update it
-# in place. pull request events only (`pull_request`, `pull_request_target`).
+# in place, and a run of a commit the pr has moved on from leaves it alone.
+# pull request events only (`pull_request`, `pull_request_target`).
 name: pats comment
 description: Comment the overall pats score on the pr vs the base branch, linking to the run summary
 
@@ -17,6 +18,9 @@ inputs:
   name:
     description: shown in the comment, to tell several comments on one pr apart. default -- none
     default: ""
+  run-failed:
+    description: "`true` when the pats run failed: the comment says so in place of the change. default -- false"
+    default: "false"
   github-token:
     description: needs pull-requests:write
     default: ${{ github.token }}
@@ -33,5 +37,7 @@ runs:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
         KEY: ${{ inputs.key }}
         NAME: ${{ inputs.name }}
+        RUN_FAILED: ${{ inputs.run-failed }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         PR: ${{ github.event.pull_request.number }}
       run: bash "$GITHUB_ACTION_PATH/comment.sh"
